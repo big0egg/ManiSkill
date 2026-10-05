@@ -1,0 +1,24 @@
+# 阿里云 PPU / Python 3.12：torch、torchvision、torchaudio 继承镜像。
+# 安装时必须使用 README 生成的 constraints-ppu.txt，避免替换 PPU 框架。
+# 覆盖本仓库 setup.py 的运行依赖，核心仿真版本固定供第一阶段验证。
+numpy>=1.22
+scipy
+dacite
+gymnasium==0.29.1
+h5py
+pyyaml
+tqdm
+GitPython
+tabulate
+transforms3d
+trimesh
+imageio[ffmpeg]
+mplib==0.1.1
+IPython
+pytorch_kinematics==0.7.6
+defusedxml
+nvidia-ml-py
+tyro>=0.8.5
+huggingface_hub
+sapien==3.0.3
+lxml

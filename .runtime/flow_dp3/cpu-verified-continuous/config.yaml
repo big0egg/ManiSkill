@@ -1,0 +1,35 @@
+# 仅检查链路的小模型；不能用于宣称原模型性能。编码器结构保持一致。
+policy:
+  horizon: 16
+  n_obs_steps: 2
+  n_action_steps: 8
+  radius1_m: 0.10
+  radius2_m: 0.20
+  length_scale: 1.0
+  down_dims: [64, 128, 256]
+  diffusion_step_embed_dim: 128
+  kernel_size: 5
+  n_groups: 8
+  num_inference_steps: 10
+  fm_eps: 0.01
+  fm_time_scale: 100.0
+  num_segments: 2
+  boundary: 1
+  delta: 0.01
+  alpha: 0.00001
+  noise_scale: 1.0
+  sigma_var: 0.0
+  solver: consistency
+training:
+  seed: 42
+  batch_size: 2
+  steps: 20
+  lr: 0.0001
+  betas: [0.95, 0.999]
+  weight_decay: 0.000001
+  warmup_steps: 0
+  val_ratio: 0.2
+  val_every: 10
+  val_batches: 2
+  checkpoint_every: 10
+  grad_clip: 1.0

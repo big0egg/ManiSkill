@@ -1,0 +1,53 @@
+{
+  "scope": "第一阶段环境与编码器探测；未训练或评估完整 FlowDP3 策略",
+  "all_selected_checks_passed": true,
+  "results": [
+    {
+      "check": "torch-ppu",
+      "status": "pass",
+      "detail": {
+        "device": "cuda:0",
+        "torch": "2.9.0",
+        "cuda_build": "13.0",
+        "device_name": "PPU-ZW810E",
+        "loss": 26.209156036376953,
+        "gradient_norm": 8.03012466430664
+      },
+      "elapsed_seconds": 3.677,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"torch-ppu\", \"status\": \"pass\", \"detail\": {\"device\": \"cuda:0\", \"torch\": \"2.9.0\", \"cuda_build\": \"13.0\", \"device_name\": \"PPU-ZW810E\", \"loss\": 26.209156036376953, \"gradient_norm\": 8.03012466430664}, \"elapsed_seconds\": 3.677}\n",
+      "stderr_tail": "",
+      "wall_seconds": 6.078
+    },
+    {
+      "check": "encoder-ppu",
+      "status": "pass",
+      "detail": {
+        "device": "cuda:0",
+        "input_shape": [
+          2,
+          512,
+          4
+        ],
+        "output_shape": [
+          2,
+          64
+        ],
+        "input_gradient_norm": 0.0668632984161377,
+        "parameter_count": 198450,
+        "input_frame": "base",
+        "input_mode": "physical",
+        "length_scale": 1.0,
+        "synthetic_radius_m": [
+          0.1,
+          0.2
+        ]
+      },
+      "elapsed_seconds": 14.818,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"encoder-ppu\", \"status\": \"pass\", \"detail\": {\"device\": \"cuda:0\", \"input_shape\": [2, 512, 4], \"output_shape\": [2, 64], \"input_gradient_norm\": 0.0668632984161377, \"parameter_count\": 198450, \"input_frame\": \"base\", \"input_mode\": \"physical\", \"length_scale\": 1.0, \"synthetic_radius_m\": [0.1, 0.2]}, \"elapsed_seconds\": 14.818}\n",
+      "stderr_tail": "",
+      "wall_seconds": 17.235
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "algorithm": "flow_dp3",
+  "encoder": "ee_relation_pointnetpp",
+  "checkpoint": "/mnt/workspace/ManiSkill/.runtime/flow_dp3/cpu-small-20demos/last.pt",
+  "checkpoint_sha256": "3e25a3e39d4a9b91e264a113f3fd5f048ffec33fd32c0241c65d0a9a4a5f1276",
+  "checkpoint_step": 20,
+  "weights": "ema",
+  "device": "cpu",
+  "contract": {
+    "action_dim": 4,
+    "control_mode": "pd_ee_delta_pos",
+    "distance_channels": "[relative_xyz_m, norm_m] / length_scale",
+    "env_id": "PickCube-v1",
+    "frame": "robot_base",
+    "obs_mode": "pointcloud",
+    "pointcloud": {
+      "crop_max": [
+        1.2,
+        0.8,
+        1.0
+      ],
+      "crop_min": [
+        0.05,
+        -0.8,
+        -0.1
+      ],
+      "length_scale": 1.0,
+      "num_points": 512,
+      "pre_sample_points": 4096,
+      "sampling_seed": 42
+    },
+    "reconfiguration_freq": 1,
+    "render_backend": "cpu",
+    "robot_uids": "panda",
+    "sensor_configs": {
+      "shader_pack": "default"
+    },
+    "sim_backend": "physx_cpu",
+    "state_dim": 28,
+    "state_fields": {
+      "goal_base_pos": [
+        25,
+        28
+      ],
+      "qpos": [
+        0,
+        9
+      ],
+      "qvel": [
+        9,
+        18
+      ],
+      "tcp_base_pose_wxyz": [
+        18,
+        25
+      ]
+    },
+    "version": 1
+  },
+  "policy_seed": 42,
+  "max_steps": 200,
+  "episodes": [
+    {
+      "seed": 1000,
+      "steps": 200,
+      "success_once": false,
+      "success_end": false,
+      "inferences": 25,
+      "mean_inference_seconds": 0.07018654947976756,
+      "reset_seconds": 0.15530053399925237,
+      "preprocess_seconds": 8.17847573897052,
+      "simulation_and_render_seconds": 6.557124997003484,
+      "predicted_action_clip_fraction": 0.0725,
+      "executed_action_clip_fraction": 0.0725
+    },
+    {
+      "seed": 1001,
+      "steps": 200,
+      "success_once": false,
+      "success_end": false,
+      "inferences": 25,
+      "mean_inference_seconds": 0.07059196020010859,
+      "reset_seconds": 0.16896768499827886,
+      "preprocess_seconds": 8.542430356013938,
+      "simulation_and_render_seconds": 7.987585427998056,
+      "predicted_action_clip_fraction": 0.07,
+      "executed_action_clip_fraction": 0.07
+    }
+  ],
+  "success_once_rate": 0.0,
+  "success_end_rate": 0.0,
+  "elapsed_seconds": 35.2930208100006
+}

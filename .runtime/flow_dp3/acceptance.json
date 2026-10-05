@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-05",
+  "generated_raw_successes": 6,
+  "replayed_successes": 5,
+  "replayed_attempts": 5,
+  "train_updates": 20,
+  "training_device": "cpu",
+  "full_model_parameter_count": 255278902,
+  "full_model_instantiated_on": "meta (shape/parameter construction only, not execution)",
+  "checkpoint_resume": {
+    "model": true,
+    "ema": true,
+    "sampler_rng": true,
+    "torch_rng": true,
+    "scheduler": true,
+    "step": 20
+  },
+  "objective_parity": {
+    "reference_loss": 0.00015651810099370778,
+    "independent_loss": 0.00015651810099370778,
+    "max_parameter_gradient_error": 5.820766091346741e-11,
+    "passed": true
+  },
+  "closed_loop_episodes": 2,
+  "closed_loop_max_steps": 200,
+  "success_once_rate": 0.0,
+  "success_end_rate": 0.0,
+  "ppu_full_policy_tested": false,
+  "twenty_demo_dataset": {
+    "generated_raw_successes": 30,
+    "replayed_attempts": 20,
+    "replayed_successes": 20,
+    "data_path": ".runtime/flow_dp3/pickcube-20.h5",
+    "train_episodes": 16,
+    "val_episodes": 4,
+    "cpu_small_model_updates": 20,
+    "closed_loop_episodes": 2,
+    "max_steps": 200,
+    "success_once_rate": 0.0,
+    "success_end_rate": 0.0
+  },
+  "data_contract_unit_tests_passed": 3
+}

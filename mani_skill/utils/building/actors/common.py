@@ -82,12 +82,13 @@ def build_cube(
         builder.add_box_collision(
             half_size=[half_size] * 3,
         )
-    builder.add_box_visual(
-        half_size=[half_size] * 3,
-        material=sapien.render.RenderMaterial(
-            base_color=color,
-        ),
-    )
+    if scene.can_render():
+        builder.add_box_visual(
+            half_size=[half_size] * 3,
+            material=sapien.render.RenderMaterial(
+                base_color=color,
+            ),
+        )
     return _build_by_type(builder, name, body_type, scene_idxs, initial_pose)
 
 
@@ -157,12 +158,13 @@ def build_sphere(
         builder.add_sphere_collision(
             radius=radius,
         )
-    builder.add_sphere_visual(
-        radius=radius,
-        material=sapien.render.RenderMaterial(
-            base_color=color,
-        ),
-    )
+    if scene.can_render():
+        builder.add_sphere_visual(
+            radius=radius,
+            material=sapien.render.RenderMaterial(
+                base_color=color,
+            ),
+        )
     return _build_by_type(builder, name, body_type, scene_idxs, initial_pose)
 
 

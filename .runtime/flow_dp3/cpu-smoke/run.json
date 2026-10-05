@@ -1,0 +1,71 @@
+{
+  "algorithm": "flow_dp3",
+  "encoder": "ee_relation_pointnetpp",
+  "device": "cpu",
+  "torch": "2.9.0",
+  "data": "/mnt/workspace/ManiSkill/.runtime/flow_dp3/smoke.h5",
+  "data_sha256": "504f79470c96ec0f686e96956e40f9b8eca3269b372cb9054968103c0e196543",
+  "contract": {
+    "action_dim": 4,
+    "control_mode": "pd_ee_delta_pos",
+    "distance_channels": "[relative_xyz_m, norm_m] / length_scale",
+    "env_id": "PickCube-v1",
+    "frame": "robot_base",
+    "obs_mode": "pointcloud",
+    "pointcloud": {
+      "crop_max": [
+        1.2,
+        0.8,
+        1.0
+      ],
+      "crop_min": [
+        0.05,
+        -0.8,
+        -0.1
+      ],
+      "length_scale": 1.0,
+      "num_points": 512,
+      "pre_sample_points": 4096,
+      "sampling_seed": 42
+    },
+    "render_backend": "cpu",
+    "robot_uids": "panda",
+    "sensor_configs": {
+      "shader_pack": "default"
+    },
+    "sim_backend": "physx_cpu",
+    "state_dim": 28,
+    "state_fields": {
+      "goal_base_pos": [
+        25,
+        28
+      ],
+      "qpos": [
+        0,
+        9
+      ],
+      "qvel": [
+        9,
+        18
+      ],
+      "tcp_base_pose_wxyz": [
+        18,
+        25
+      ]
+    },
+    "version": 1
+  },
+  "train_episodes": [
+    "episode_00001",
+    "episode_00002",
+    "episode_00003",
+    "episode_00004"
+  ],
+  "val_episodes": [
+    "episode_00000"
+  ],
+  "train_windows": 258,
+  "val_windows": 67,
+  "parameter_count": 5539062,
+  "batch_size": 2
+}

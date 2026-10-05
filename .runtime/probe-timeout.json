@@ -1,0 +1,22 @@
+{
+  "scope": "第一阶段环境与编码器探测；未训练或评估完整 FlowDP3 策略",
+  "all_selected_checks_passed": false,
+  "results": [
+    {
+      "check": "metadata",
+      "status": "fail",
+      "error": "子进程超过 0.01 秒",
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "wall_seconds": 0.011
+    },
+    {
+      "check": "torch-cpu",
+      "status": "fail",
+      "error": "子进程超过 0.01 秒",
+      "stdout_tail": "",
+      "stderr_tail": "",
+      "wall_seconds": 0.011
+    }
+  ]
+}

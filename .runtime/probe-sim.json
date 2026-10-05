@@ -1,0 +1,25 @@
+{
+  "scope": "第一阶段环境与编码器探测；未训练或评估完整 FlowDP3 策略",
+  "all_selected_checks_passed": true,
+  "results": [
+    {
+      "check": "sim",
+      "status": "pass",
+      "detail": {
+        "env_id": "PickCube-v1",
+        "sim_backend": "physx_cpu",
+        "render_backend": "none",
+        "steps": 3,
+        "action_shape": [
+          4
+        ],
+        "task_goal_available": true
+      },
+      "elapsed_seconds": 3.256,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"sim\", \"status\": \"pass\", \"detail\": {\"env_id\": \"PickCube-v1\", \"sim_backend\": \"physx_cpu\", \"render_backend\": \"none\", \"steps\": 3, \"action_shape\": [4], \"task_goal_available\": true}, \"elapsed_seconds\": 3.256}\n",
+      "stderr_tail": "/usr/local/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.7.0) or chardet (6.0.0.post1)/charset_normalizer (2.0.12) doesn't match a supported version!\n  warnings.warn(\n/mnt/workspace/ManiSkill/.venv-ppu/lib/python3.12/site-packages/sapien/_vulkan_tricks.py:78: UserWarning: Failed to find Vulkan ICD file. This is probably due to an incorrect or partial installation of the NVIDIA driver. SAPIEN will attempt to provide an ICD file anyway but it may not work.\n  warn(\n/mnt/workspace/ManiSkill/.venv-ppu/lib/python3.12/site-packages/sapien/_vulkan_tricks.py:100: UserWarning: Failed to find glvnd ICD file. This is probably due to an incorrect or partial installation of the NVIDIA driver. SAPIEN will attempt to provide an ICD file anyway but it may not work.\n  warn(\n",
+      "wall_seconds": 3.692
+    }
+  ]
+}

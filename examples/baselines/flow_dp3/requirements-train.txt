@@ -1,0 +1,2 @@
+# 在已安装 requirements-probe.txt 的本项目 venv 内安装；保留 PPU 约束。
+einops>=0.6,<0.9

@@ -1,0 +1,92 @@
+{
+  "env_info": {
+    "env_id": "PickCube-v1",
+    "env_kwargs": {
+      "robot_uids": "panda",
+      "num_envs": 1,
+      "obs_mode": "none",
+      "control_mode": "pd_joint_pos",
+      "sim_backend": "physx_cpu",
+      "render_backend": "none",
+      "render_mode": null,
+      "sensor_configs": {
+        "shader_pack": "default"
+      }
+    },
+    "max_episode_steps": 200
+  },
+  "commit_info": {
+    "commit_id": "9345d0a3fa38e1b3237e57b9cb014855b39d704b",
+    "branch": "main"
+  },
+  "episodes": [
+    {
+      "episode_id": 0,
+      "episode_seed": 0,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 74,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 0
+      },
+      "success": true
+    },
+    {
+      "episode_id": 1,
+      "episode_seed": 1,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 74,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 1
+      },
+      "success": true
+    },
+    {
+      "episode_id": 2,
+      "episode_seed": 2,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 50,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 2
+      },
+      "success": true
+    },
+    {
+      "episode_id": 3,
+      "episode_seed": 3,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 86,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 3
+      },
+      "success": true
+    },
+    {
+      "episode_id": 4,
+      "episode_seed": 4,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 76,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 4
+      },
+      "success": true
+    },
+    {
+      "episode_id": 5,
+      "episode_seed": 5,
+      "control_mode": "pd_joint_pos",
+      "elapsed_steps": 88,
+      "reset_kwargs": {
+        "options": null,
+        "seed": 5
+      },
+      "success": true
+    }
+  ],
+  "source_type": "motionplanning",
+  "source_desc": "ManiSkill bundled PickCube solver, CPU"
+}

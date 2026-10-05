@@ -1,0 +1,83 @@
+{
+  "scope": "第一阶段环境与编码器探测；未训练或评估完整 FlowDP3 策略",
+  "all_selected_checks_passed": true,
+  "results": [
+    {
+      "check": "metadata",
+      "status": "pass",
+      "detail": {
+        "python": "3.12.3 (main, May 13 2026, 11:34:53) [GCC 13.3.0]",
+        "executable": "/mnt/workspace/ManiSkill/.venv-ppu/bin/python",
+        "platform": "Linux-5.10.134-013.13.4.kangaroo.al8.x86_64-x86_64-with-glibc2.39",
+        "packages": {
+          "torch": "2.9.0",
+          "torchvision": "0.24.0",
+          "torchaudio": "2.9.0",
+          "numpy": "1.26.0",
+          "scipy": "1.11.3",
+          "sapien": "3.0.3",
+          "mani_skill": "3.0.1",
+          "gymnasium": "0.29.1",
+          "h5py": "3.16.0",
+          "mplib": "0.1.1",
+          "pytorch_kinematics": "0.7.6"
+        },
+        "vulkan_icds": [],
+        "VK_ICD_FILENAMES": null,
+        "CUDA_VISIBLE_DEVICES": "0"
+      },
+      "elapsed_seconds": 0.013,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"metadata\", \"status\": \"pass\", \"detail\": {\"python\": \"3.12.3 (main, May 13 2026, 11:34:53) [GCC 13.3.0]\", \"executable\": \"/mnt/workspace/ManiSkill/.venv-ppu/bin/python\", \"platform\": \"Linux-5.10.134-013.13.4.kangaroo.al8.x86_64-x86_64-with-glibc2.39\", \"packages\": {\"torch\": \"2.9.0\", \"torchvision\": \"0.24.0\", \"torchaudio\": \"2.9.0\", \"numpy\": \"1.26.0\", \"scipy\": \"1.11.3\", \"sapien\": \"3.0.3\", \"mani_skill\": \"3.0.1\", \"gymnasium\": \"0.29.1\", \"h5py\": \"3.16.0\", \"mplib\": \"0.1.1\", \"pytorch_kinematics\": \"0.7.6\"}, \"vulkan_icds\": [], \"VK_ICD_FILENAMES\": null, \"CUDA_VISIBLE_DEVICES\": \"0\"}, \"elapsed_seconds\": 0.013}\n",
+      "stderr_tail": "",
+      "wall_seconds": 0.089
+    },
+    {
+      "check": "torch-cpu",
+      "status": "pass",
+      "detail": {
+        "device": "cpu",
+        "torch": "2.9.0",
+        "cuda_build": "13.0",
+        "device_name": "CPU",
+        "loss": 30.9444580078125,
+        "gradient_norm": 8.706768035888672
+      },
+      "elapsed_seconds": 2.023,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"torch-cpu\", \"status\": \"pass\", \"detail\": {\"device\": \"cpu\", \"torch\": \"2.9.0\", \"cuda_build\": \"13.0\", \"device_name\": \"CPU\", \"loss\": 30.9444580078125, \"gradient_norm\": 8.706768035888672}, \"elapsed_seconds\": 2.023}\n",
+      "stderr_tail": "",
+      "wall_seconds": 2.378
+    },
+    {
+      "check": "encoder-cpu",
+      "status": "pass",
+      "detail": {
+        "device": "cpu",
+        "input_shape": [
+          2,
+          512,
+          4
+        ],
+        "output_shape": [
+          2,
+          64
+        ],
+        "input_gradient_norm": 0.1244119182229042,
+        "parameter_count": 198450,
+        "input_frame": "base",
+        "input_mode": "physical",
+        "length_scale": 1.0,
+        "synthetic_radius_m": [
+          0.1,
+          0.2
+        ]
+      },
+      "elapsed_seconds": 1.905,
+      "returncode": 0,
+      "stdout_tail": "FLOW_DP3_PROBE_RESULT={\"check\": \"encoder-cpu\", \"status\": \"pass\", \"detail\": {\"device\": \"cpu\", \"input_shape\": [2, 512, 4], \"output_shape\": [2, 64], \"input_gradient_norm\": 0.1244119182229042, \"parameter_count\": 198450, \"input_frame\": \"base\", \"input_mode\": \"physical\", \"length_scale\": 1.0, \"synthetic_radius_m\": [0.1, 0.2]}, \"elapsed_seconds\": 1.905}\n",
+      "stderr_tail": "",
+      "wall_seconds": 2.246
+    }
+  ]
+}

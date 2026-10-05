@@ -1,0 +1,84 @@
+{
+  "algorithm": "flow_dp3",
+  "encoder": "ee_relation_pointnetpp",
+  "checkpoint": "/mnt/workspace/ManiSkill/.runtime/flow_dp3/cpu-smoke/last.pt",
+  "checkpoint_sha256": "792cc00d40852548955d0aa80603c7474db01bea76b4a8cb66ac0966772a1839",
+  "checkpoint_step": 20,
+  "weights": "ema",
+  "device": "cpu",
+  "contract": {
+    "action_dim": 4,
+    "control_mode": "pd_ee_delta_pos",
+    "distance_channels": "[relative_xyz_m, norm_m] / length_scale",
+    "env_id": "PickCube-v1",
+    "frame": "robot_base",
+    "obs_mode": "pointcloud",
+    "pointcloud": {
+      "crop_max": [
+        1.2,
+        0.8,
+        1.0
+      ],
+      "crop_min": [
+        0.05,
+        -0.8,
+        -0.1
+      ],
+      "length_scale": 1.0,
+      "num_points": 512,
+      "pre_sample_points": 4096,
+      "sampling_seed": 42
+    },
+    "render_backend": "cpu",
+    "robot_uids": "panda",
+    "sensor_configs": {
+      "shader_pack": "default"
+    },
+    "sim_backend": "physx_cpu",
+    "state_dim": 28,
+    "state_fields": {
+      "goal_base_pos": [
+        25,
+        28
+      ],
+      "qpos": [
+        0,
+        9
+      ],
+      "qvel": [
+        9,
+        18
+      ],
+      "tcp_base_pose_wxyz": [
+        18,
+        25
+      ]
+    },
+    "version": 1
+  },
+  "policy_seed": 42,
+  "max_steps": 40,
+  "episodes": [
+    {
+      "seed": 1000,
+      "steps": 40,
+      "success_once": false,
+      "success_end": false,
+      "inferences": 5,
+      "mean_inference_seconds": 0.07399772800017672,
+      "predicted_action_clip_fraction": 0.0625
+    },
+    {
+      "seed": 1001,
+      "steps": 40,
+      "success_once": false,
+      "success_end": false,
+      "inferences": 5,
+      "mean_inference_seconds": 0.06829747480041988,
+      "predicted_action_clip_fraction": 0.08125
+    }
+  ],
+  "success_once_rate": 0.0,
+  "success_end_rate": 0.0,
+  "elapsed_seconds": 6.800925936000567
+}
