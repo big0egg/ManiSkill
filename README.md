@@ -176,7 +176,7 @@ python -B examples/baselines/flow_dp3/probe_runtime.py \
 
 每项检查在独立子进程中运行，任何所选项失败时退出码为1。编码器检查包含前向、反向和有限梯度；点云检查包含相机有效点、坐标变换、裁剪、采样及关系编码器输出。`--steps` 在这里表示环境步数，`--timeout` 是每项检查的超时秒数。
 
-全部通过后，按 [introduce.md](introduce.md) 先跑小模型，再扩大数据和模型规模。可额外执行仓库测试：
+全部通过后，按 [introduce.md](introduce.md) 进行数据准备、完整模型训练和评估。可额外执行仓库测试：
 
 ```bash
 python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
