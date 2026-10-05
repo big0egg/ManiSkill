@@ -1,2 +1,5 @@
 # 可选：在已激活的本项目 venv 中安装，并保留 constraints-ppu.txt。
-wandb>=0.19,<1
+# PPU 镜像继承系统包；使用无需 OpenTelemetry 的 SDK，并保护原 protobuf。
+wandb==0.19.11
+protobuf==3.20.3
+click==8.1.7

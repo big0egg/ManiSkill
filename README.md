@@ -53,6 +53,7 @@ ManiSkill/
 │   ├── train.py / evaluate.py     # 训练、恢复、闭环评估与 MP4 录制
 │   ├── experiment_logging.py      # 可选 W&B 在线/离线日志
 │   ├── import_training_logs.py    # 将已有 JSONL 指标导入 W&B
+│   ├── repair_logging_env.py      # 修复 PPU 镜像上的 W&B 依赖冲突
 │   ├── configs/                  # 完整模型与小模型烟雾配置
 │   ├── tests/                    # 时序、统计隔离和坐标契约验证
 │   ├── PROVENANCE.md / LICENSE-DP3
@@ -519,7 +520,38 @@ pip_install_public -r examples/baselines/flow_dp3/requirements-logging.txt
 wandb login
 ```
 
-如果当前终端还没有定义 `pip_install_public`，先重新执行4.2节的函数定义。W&B 登录由实例终端完成，不将 API key 写入训练配置。SDK 依赖仍受 `.runtime/constraints-ppu.txt` 保护。[W&B SDK](https://github.com/wandb/wandb)
+如果当前终端还没有定义 `pip_install_public`，先重新执行4.2节的函数定义。W&B 登录由实例终端完成，不将 API key 写入训练配置。SDK 依赖仍受 `.runtime/constraints-ppu.txt` 保护。
+
+本镜像固定 `wandb==0.19.11`、`protobuf==3.20.3`、`click==8.1.7`。W&B 0.19.11 支持 Python 3.12，允许镜像原有的 protobuf 3.20.3，且不依赖 OpenTelemetry；不要再使用 `wandb>=0.19,<1` 或无约束升级。[固定版本的官方依赖定义](https://github.com/wandb/wandb/blob/v0.19.11/pyproject.toml)
+
+#### 已安装 W&B 0.30.0 后出现依赖冲突的修复
+
+本项目虚拟环境继承系统包，以复用 PPU PyTorch。此前 W&B 0.30.0 在虚拟环境中安装了 protobuf 7.36.2、click 8.5.0 和 OpenTelemetry 1.45.0 / 0.66b0，覆盖镜像原有版本；系统中的 OpenTelemetry 其他组件仍要求1.41.1，TensorBoardX 等则要求 protobuf <4。`Not uninstalling ... outside environment` 表示 pip 保留系统包，不是安装失败原因。
+
+在实例终端执行以下命令。脚本先检查运行位置、核心依赖和覆盖包版本，再下载齐所有 wheel，之后才安装固定版本并移除本次安装的8个本地 OpenTelemetry 覆盖包；下载失败不会卸载包。它只处理 `.venv-ppu`，不修改 `/usr/local` 或参考项目，不需要 sudo。
+
+```bash
+cd /mnt/workspace/ManiSkill
+source .venv-ppu/bin/activate
+
+# 可先检查范围，不下载或修改已安装包。
+python -B examples/baselines/flow_dp3/repair_logging_env.py --dry-run
+
+# 下载成功后执行依赖修复。
+python -B examples/baselines/flow_dp3/repair_logging_env.py
+```
+
+默认使用阿里云 PyPI 镜像并仅对当前子进程绕过代理；若镜像尚未同步该版本，可在有网络的终端添加 `--index-url https://pypi.org/simple/`。脚本会验证固定版本、SDK 导入和原有 PyTorch / NumPy 等约束。成功报告为 `.runtime/wandb-dependency-repair/last-success.json`，修复前包清单和下载文件保存在同目录下的 `wheels-*` 中。
+
+修复后检查真实 SDK，再登录：
+
+```bash
+python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
+python -m pip check
+wandb login
+```
+
+`test_real_sdk_offline` 会创建并关闭真实 W&B 离线 run，无需登录。工具沙箱限制 socket，无法完成这项检查；应在实例终端运行。`pip check` 检查整个继承环境，修复后仍可能列出镜像原有冲突，例如 OpenTelemetry proto / grpcio-reflection 要求 protobuf >=5 / >=6.31.1，而 TensorBoardX / Google API 要求 protobuf <4，这些范围无法同时满足。当前方案恢复原有 protobuf，并使用不依赖 OpenTelemetry 的 W&B；不要为清空所有警告无约束升级 PyTorch、NumPy 或系统包。
 
 #### 直接查看已有训练曲线，无需重新训练
 
@@ -601,7 +633,7 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 
 评估单独创建 W&B run，记录每局成功状态、种子、耗时和动作裁剪比例，summary 中显示 `eval/success_once_rate` / `eval/success_end_rate`。只有显式添加 `--wandb-upload-videos` 时，才将 MP4 同时记录到 W&B；否则仅保留本地视频。评估日志位于报告旁的 `<报告名>-logging/`，W&B 页面链接也写入报告。
 
-本次验证：CPU 训练恢复及启用日志的 RNG 隔离通过；历史指标导入和视频记录接口通过 mock SDK 检查；真实 MP4 已生成并解码检查。当前工具未能获取 W&B 安装包，真实 SDK 离线检查暂时跳过，在线登录与同步需要在实例终端验证。安装 SDK 后可执行下列测试，其中 `test_real_sdk_offline` 会使用真实 SDK 创建离线日志：
+已有验证：CPU 训练恢复及启用日志的 RNG 隔离通过；历史指标导入和视频记录接口通过 mock SDK 检查；真实 MP4 已生成并解码检查。用户安装的 W&B 0.30.0 可导入，但有上述依赖冲突；工具沙箱同时限制软件源网络和 SDK 后台服务所需的 socket，因此固定版本安装、真实离线日志与在线登录仍需在实例终端验证。修复后可执行下列测试，其中 `test_real_sdk_offline` 使用真实 SDK 创建离线日志：
 
 ```bash
 python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
