@@ -91,13 +91,13 @@ def adapt_observation(obs, agent, config):
     return {"pointcloud_distance": distance, "state": state}, diagnostics
 
 
-def make_env(control_mode="pd_ee_delta_pos", visual=True, max_episode_steps=200):
+def make_env(control_mode="pd_ee_delta_pos", visual=True, max_episode_steps=200, render_mode=None):
     import gymnasium as gym
     import mani_skill.envs  # noqa: F401
     return gym.make("PickCube-v1", robot_uids="panda", num_envs=1,
                     obs_mode="pointcloud" if visual else "none",
                     control_mode=control_mode, sim_backend="physx_cpu",
-                    render_backend="cpu" if visual else "none", render_mode=None,
+                    render_backend="cpu" if visual else "none", render_mode=render_mode,
                     sensor_configs={"shader_pack": "default"},
                     reconfiguration_freq=1,
                     max_episode_steps=max_episode_steps)

@@ -9,6 +9,7 @@ import time
 
 import torch
 
+from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
 from obs_adapter import ObservationConfig, adapt_observation, make_env
 from runtime_utils import canonical, load_policy, select_device, sha256
 
@@ -18,6 +19,19 @@ def evaluate(args):
         raise ValueError("episodes 与 max_steps 必须为正数")
     if args.output.exists():
         raise FileExistsError(f"报告已存在：{args.output}；请选择新路径")
+    if args.video_dir and not args.save_video:
+        raise ValueError("--video-dir 需要同时指定 --save-video")
+    if args.video_fps is not None and args.video_fps < 1:
+        raise ValueError("video-fps 必须为正整数")
+    if args.wandb_upload_videos and (not args.save_video or args.wandb_mode == "disabled"):
+        raise ValueError("上传 W&B 视频需要 --save-video 和 online/offline 的 --wandb-mode")
+    video_dir = (args.video_dir or args.output.parent / (args.output.stem + "-videos")).resolve()
+    if args.save_video:
+        for seed in range(args.start_seed, args.start_seed + args.episodes):
+            if (video_dir / f"seed_{seed}.mp4").exists():
+                raise FileExistsError(f"视频已存在：{video_dir / f'seed_{seed}.mp4'}；请选择新目录")
+    with preserve_rng():
+        require_wandb(args)
     device = select_device(args.device)
     torch.manual_seed(args.policy_seed)
     policy, checkpoint = load_policy(args.checkpoint, device, use_ema=not args.raw_weights)
@@ -27,10 +41,24 @@ def evaluate(args):
         raise ValueError("checkpoint 观测/环境契约与当前适配器不同")
     if policy.config.length_scale != config.length_scale:
         raise ValueError("checkpoint 中数据与策略长度尺度不一致")
-    env = make_env(max_episode_steps=args.max_steps)
+    env = make_env(max_episode_steps=args.max_steps, render_mode="rgb_array" if args.save_video else None)
+    video_fps = args.video_fps or env.unwrapped.control_freq
+    if args.save_video:
+        from mani_skill.utils.wrappers.record import RecordEpisode
+        env = RecordEpisode(env, output_dir=str(video_dir), save_trajectory=False, save_video=True,
+                            save_on_reset=False, info_on_video=False, video_fps=video_fps)
     results = []
     started = time.monotonic()
+    logger = None
+    completed = False
     try:
+        logger = ExperimentLogger(args, args.output.parent / (args.output.stem + "-logging"),
+                                  {"policy": checkpoint["config"]["policy"], "contract": contract,
+                                   "checkpoint": str(args.checkpoint.resolve()), "checkpoint_step": checkpoint["step"],
+                                   "source_training_run": checkpoint.get("wandb"), "device": str(device),
+                                   "max_steps": args.max_steps, "start_seed": args.start_seed,
+                                   "policy_seed": args.policy_seed, "save_video": args.save_video},
+                                  "eval", group=(checkpoint.get("wandb") or {}).get("id"))
         for seed in range(args.start_seed, args.start_seed + args.episodes):
             reset_start = time.monotonic()
             obs, _ = env.reset(seed=seed)
@@ -79,10 +107,26 @@ def evaluate(args):
                       "simulation_and_render_seconds": simulation_seconds,
                       "predicted_action_clip_fraction": clipped / max(1, action_values),
                       "executed_action_clip_fraction": executed_clipped / max(1, executed_values)}
+            if args.save_video:
+                encode_start = time.monotonic()
+                env.flush_video(name=f"seed_{seed}", verbose=True)
+                video_path = video_dir / f"seed_{seed}.mp4"
+                if not video_path.is_file() or not video_path.stat().st_size:
+                    raise RuntimeError(f"视频录制未生成有效文件：{video_path}")
+                result["video_path"] = str(video_path)
+                result["video_encoding_seconds"] = time.monotonic() - encode_start
             results.append(result)
             print(json.dumps(result), flush=True)
+            logger.log_episode(result, len(results), upload_video=args.wandb_upload_videos, fps=video_fps)
+        completed = True
     finally:
-        env.close()
+        try:
+            env.close()
+        finally:
+            if logger is not None:
+                logger.finish({"eval/success_once_rate": sum(r["success_once"] for r in results) / max(1, len(results)),
+                               "eval/success_end_rate": sum(r["success_end"] for r in results) / max(1, len(results)),
+                               "eval/episodes": len(results)}, exit_code=0 if completed else 1)
     report = {"algorithm": "flow_dp3", "encoder": "ee_relation_pointnetpp",
               "checkpoint": str(args.checkpoint.resolve()), "checkpoint_sha256": sha256(args.checkpoint),
               "checkpoint_step": checkpoint["step"], "weights": "raw" if args.raw_weights else "ema",
@@ -90,7 +134,9 @@ def evaluate(args):
               "max_steps": args.max_steps, "episodes": results,
               "success_once_rate": sum(r["success_once"] for r in results) / len(results),
               "success_end_rate": sum(r["success_end"] for r in results) / len(results),
-              "elapsed_seconds": time.monotonic() - started}
+              "elapsed_seconds": time.monotonic() - started,
+              "save_video": args.save_video, "video_fps": video_fps if args.save_video else None,
+              "wandb": logger.metadata if logger is not None else None}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(f"成功率 once={report['success_once_rate']:.3f}, end={report['success_end_rate']:.3f}；报告={args.output}")
@@ -106,6 +152,11 @@ def main():
     parser.add_argument("--max-steps", type=int, default=200)
     parser.add_argument("--raw-weights", action="store_true", help="默认使用 EMA")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--save-video", action="store_true", help="保存每局 MP4，默认不录制")
+    parser.add_argument("--video-dir", type=Path, help="默认 <报告文件名>-videos 目录")
+    parser.add_argument("--video-fps", type=int, help="默认使用任务控制频率")
+    add_wandb_args(parser)
+    parser.add_argument("--wandb-upload-videos", action="store_true", help="将已录制的视频同时记录到 W&B")
     evaluate(parser.parse_args())
 
 

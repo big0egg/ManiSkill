@@ -12,6 +12,7 @@ import torch
 from torch.utils.data import default_collate
 
 from dataset import DemoDataset
+from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
 from policy import FlowDP3, PolicyConfig, update_ema
 from runtime_utils import (DEFAULT_CONFIG, canonical, load_config, save_checkpoint,
                            select_device, sha256, to_device)
@@ -27,10 +28,12 @@ def train(args):
     settings = config["training"]
     steps = args.steps if args.steps is not None else settings["steps"]
     batch_size = args.batch_size if args.batch_size is not None else settings["batch_size"]
-    if steps < 1 or batch_size < 1 or settings["lr"] <= 0 or settings["grad_clip"] <= 0 or any(
+    if steps < 1 or batch_size < 1 or args.wandb_log_every < 1 or settings["lr"] <= 0 or settings["grad_clip"] <= 0 or any(
         settings[key] < 1 for key in ("val_every", "val_batches", "checkpoint_every")
     ):
         raise ValueError("步数、批大小、学习率、裁剪阈值及检查频率必须为正数")
+    with preserve_rng():
+        require_wandb(args)
     device = select_device(args.device)
     torch.manual_seed(settings["seed"])
     if device.type == "cuda":
@@ -61,6 +64,7 @@ def train(args):
         return 0.5 * (1 + math.cos(math.pi * progress))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_multiplier)
     output = args.output.resolve()
+    checkpoint = None
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
         if checkpoint.get("format_version") != 1 or checkpoint["data_sha256"] != fingerprint or canonical(
@@ -99,7 +103,13 @@ def train(args):
     (output / "run.json").write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(run, ensure_ascii=False), flush=True)
     started = time.monotonic()
+    logger = None
+    completed = False
     try:
+        logger = ExperimentLogger(args, output, {**config, "runtime": run, "target_steps": steps},
+                                  "train", resume=bool(args.resume), previous=(checkpoint or {}).get("wandb"))
+        run["wandb"] = logger.metadata
+        (output / "run.json").write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n")
         with (output / "metrics.jsonl").open("a") as metrics:
             while step < steps:
                 model.train()
@@ -131,6 +141,8 @@ def train(args):
                     best_validation = min(best_validation, record["val_loss"])
                 metrics.write(json.dumps(record) + "\n")
                 metrics.flush()
+                if step == 1 or step % args.wandb_log_every == 0 or step == steps or "val_loss" in record:
+                    logger.log_training(record)
                 if step == 1 or step % 10 == 0 or step == steps:
                     print(json.dumps(record), flush=True)
                 if is_best or step % settings["checkpoint_every"] == 0 or step == steps:
@@ -138,14 +150,21 @@ def train(args):
                                "data_sha256": fingerprint, "model": model.state_dict(), "ema": ema.state_dict(),
                                "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
                                "step": step, "batch_size": batch_size, "best_validation": best_validation,
+                               "wandb": logger.metadata,
                                "sampler_rng": sampler.get_state(), "torch_rng": torch.get_rng_state(),
                                "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else None}
                     save_checkpoint(output / "last.pt", payload)
                     if is_best:
                         save_checkpoint(output / "best.pt", payload)
+        completed = True
     finally:
         training.close()
         validation.close()
+        if logger is not None:
+            summary = {"train/final_step": step}
+            if math.isfinite(best_validation):
+                summary["val/best_loss"] = best_validation
+            logger.finish(summary, exit_code=0 if completed else 1)
     print(f"完成 {step} updates；{time.monotonic() - started:.1f}s；checkpoint={output / 'last.pt'}", flush=True)
 
 
@@ -158,6 +177,8 @@ def main():
     parser.add_argument("--steps", type=int, help="目标总更新次数，包含已恢复步数")
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--resume", type=Path)
+    add_wandb_args(parser)
+    parser.add_argument("--wandb-log-every", type=int, default=10, help="每多少次更新记录 W&B；首步、验证和末步始终记录")
     train(parser.parse_args())
 
 

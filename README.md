@@ -8,7 +8,7 @@ ManiSkill 是基于 [SAPIEN](https://sapien.ucsd.edu/) 的开源机器人仿真�
 
 已实现独立 FlowDP3、统一观测适配、成功示范回放、序列数据集、训练、EMA checkpoint 保存/恢复与闭环评估。当前可行性路线为 **CPU PhysX + CPU 软件 Vulkan 渲染 + PPU 策略计算**。第8节提供完整操作命令。
 
-> **验证记录（2026-10-05）**：CPU 仿真和软件 Vulkan 的真实点云已通过；用户实例报告确认 PPU-ZW810E 的基础计算及关系编码器前向/反向通过。已准备5条烟雾示范及20条训练示范，末端控制回放均成功；CPU 小模型完成20次训练更新、checkpoint 恢复及闭环执行。完整策略的 PPU 训练尚待实例终端验证。短训练的闭环成功率不能作为正式性能结果，见第8.6节。
+> **验证记录（2026-10-05）**：CPU 仿真和软件 Vulkan 的真实点云已通过；用户实例报告确认 PPU-ZW810E 的基础计算及关系编码器前向/反向通过。已准备5条烟雾示范及20条训练示范，末端控制回放均成功；CPU 小模型完成20次训练更新、checkpoint 恢复及闭环执行。用户实例的 PPU 小模型训练与评估也已通过；完整宽度主干训练仍待验证。短训练的闭环成功率不能作为正式性能结果，见第8.6节。
 
 ## 1. 环境与适配原则
 
@@ -50,7 +50,9 @@ ManiSkill/
 │   ├── dataset.py                 # episode 划分与序列窗口
 │   ├── policy.py                  # FlowDP3、一致性目标与 EMA
 │   ├── conditional_unet1d.py      # 独立 FiLM U-Net 及本地组件
-│   ├── train.py / evaluate.py     # 训练、恢复与闭环评估
+│   ├── train.py / evaluate.py     # 训练、恢复、闭环评估与 MP4 录制
+│   ├── experiment_logging.py      # 可选 W&B 在线/离线日志
+│   ├── import_training_logs.py    # 将已有 JSONL 指标导入 W&B
 │   ├── configs/                  # 完整模型与小模型烟雾配置
 │   ├── tests/                    # 时序、统计隔离和坐标契约验证
 │   ├── PROVENANCE.md / LICENSE-DP3
@@ -491,9 +493,10 @@ python -B examples/baselines/flow_dp3/train.py \
 | 原目标一致性 | 同一输入/随机种子下损失一致，梯度最大误差约 `5.8e-11`；`objective-parity.json` |
 | checkpoint 恢复 | 10+10步与连续20步的模型、EMA、采样器/框架随机状态一致；`resume-equivalence.json` |
 | CPU 小模型闭环 | 5条/20条数据训练的模型各评估2条独立种子、每条200步；两组成功率均0/2，见 `eval-cpu-verified.json` / `eval-cpu-20demos.json` |
-| 完整策略 PPU 训练 | 待实例终端按8.3节验证；当前工具进程不可访问 PPU |
+| PPU 小模型训练/评估 | 用户实例报告已通过20次更新和2局200步评估，见 `ppu-smoke/metrics.jsonl` / `eval-ppu-smoke.json` |
+| 完整宽度主干 PPU 训练 | 尚未验证，按8.5节开展；当前工具进程不可访问 PPU |
 
-表中未写完整路径的文件位于 `.runtime/flow_dp3/`，总验收摘要为 `acceptance.json`。这些结果确认移植的数据与执行链路可运行，尚不证明原模型在 ManiSkill 上的学习效果。完整模型性能、PPU 卷积/U-Net 支持及吞吐量需要后续实测。
+表中未写完整路径的文件位于 `.runtime/flow_dp3/`，总验收摘要为 `acceptance.json`。这些结果确认移植的数据与执行链路可运行，尚不证明原模型在 ManiSkill 上的学习效果。完整宽度模型性能及吞吐量需要后续实测。
 
 可重复执行数据契约检查：
 
@@ -502,6 +505,107 @@ python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
 ```
 
 源代码运行时只依赖当前仓库和本环境；参考项目未修改，也不需要部署。算法来源与许可证保留在 [PROVENANCE.md](examples/baselines/flow_dp3/PROVENANCE.md) 和 [LICENSE-DP3](examples/baselines/flow_dp3/LICENSE-DP3)。
+
+### 8.7 W&B 可视化与推理视频
+
+训练默认继续保存本地 `metrics.jsonl`，每步都有指标；终端每10步打印一次。W&B 是可选功能，默认 `--wandb-mode disabled`，录制默认关闭。
+
+#### 安装与登录
+
+先按8.1节初始化环境，在本项目 venv 中使用4.2节的安装函数：
+
+```bash
+pip_install_public -r examples/baselines/flow_dp3/requirements-logging.txt
+wandb login
+```
+
+如果当前终端还没有定义 `pip_install_public`，先重新执行4.2节的函数定义。W&B 登录由实例终端完成，不将 API key 写入训练配置。SDK 依赖仍受 `.runtime/constraints-ppu.txt` 保护。[W&B SDK](https://github.com/wandb/wandb)
+
+#### 直接查看已有训练曲线，无需重新训练
+
+现有 `.runtime/flow_dp3/ppu-smoke/` 包含20次更新的完整指标，可直接导入：
+
+```bash
+python -B examples/baselines/flow_dp3/import_training_logs.py \
+    --run-dir .runtime/flow_dp3/ppu-smoke \
+    --wandb-mode online --wandb-project flow_dp3 \
+    --wandb-name ppu-smoke-history
+```
+
+终端会打印 W&B 页面链接，网页中查看 `train/loss`、`val/loss`、`train/lr`、`train/grad_norm` 和 `train/ema_decay`，横轴为 `global_step`。导入目录默认为训练目录内的 `wandb-history/`；重复导入需指定新的 `--output` 目录。历史导入不会上传 `.pt` 权重或示范数据。
+
+#### 新训练实时显示曲线
+
+```bash
+python -B examples/baselines/flow_dp3/train.py \
+    --config examples/baselines/flow_dp3/configs/pickcube_smoke.yaml \
+    --data .runtime/flow_dp3/pickcube-smoke.h5 \
+    --output .runtime/flow_dp3/ppu-wandb-smoke --device cuda:0 \
+    --wandb-mode online --wandb-project flow_dp3 \
+    --wandb-name ppu-wandb-smoke --wandb-log-every 1
+```
+
+完整模型训练同样可以添加这些参数。默认每10步向 W&B 记录一次，首步、验证和末步始终记录；本地 JSONL 始终保留每步指标。`--wandb-entity` 可以指定个人/团队 workspace。默认关闭 W&B 自动硬件监控，在 PPU 环境只记录程序明确给出的实验指标。
+
+W&B run ID 与 project/entity 保存到 `wandb_run.json` 和 checkpoint。恢复模型时继续使用原数据、配置、batch size、输出目录和 `--resume`，加上 `--wandb-mode online`，会自动续接同一个 W&B run。旧 checkpoint 也可加载；其未包含 W&B 信息时新建日志 run。绘图使用明确的训练 `global_step`，与 W&B 内部记录序号分开。[W&B SDK 恢复行为](https://github.com/wandb/wandb/blob/main/wandb/sdk/wandb_settings.py)
+
+#### 阿里云网络受限时离线记录
+
+将上面的 `--wandb-mode online` 改为 `--wandb-mode offline`。离线模式无需登录即可保存 SDK 日志，但不能实时显示云端曲线。网络恢复后登录并同步实际目录：
+
+```bash
+find .runtime/flow_dp3/ppu-wandb-smoke/wandb \
+    -maxdepth 1 -type d -name 'offline-run-*' -print
+
+wandb sync .runtime/flow_dp3/ppu-wandb-smoke/wandb/offline-run-实际目录名
+```
+
+历史导入也支持 offline；对应 SDK 日志位于 `ppu-smoke/wandb-history/wandb/`。离线恢复训练继续沿用逻辑 run ID，但每次执行会产生一个新的离线目录，需逐个同步。这里不承诺 SDK 原地恢复同一个离线文件。
+
+#### 录制现有 checkpoint 的推理 MP4
+
+不需要 W&B 就可以录制：
+
+```bash
+python -B examples/baselines/flow_dp3/evaluate.py \
+    --checkpoint .runtime/flow_dp3/ppu-smoke/last.pt \
+    --device cuda:0 --episodes 2 --start-seed 1000 --max-steps 200 \
+    --save-video --video-dir .runtime/flow_dp3/videos/ppu-smoke \
+    --output .runtime/flow_dp3/eval-ppu-smoke-video.json
+
+ls -lh .runtime/flow_dp3/videos/ppu-smoke/*.mp4
+```
+
+每局分别保存 `seed_1000.mp4`、`seed_1001.mp4`；JSON 的每局结果包含 `video_path`。默认 FPS 使用任务控制频率（本任务为20），可用 `--video-fps` 改变播放帧率。未指定 `--video-dir` 时，自动使用报告旁的 `<报告名>-videos/`。已有同名视频或报告时拒绝覆盖，重新实验使用新路径。
+
+录像复用 ManiSkill `RecordEpisode`，只开启展示用 RGB 相机，训练观测相机、点云契约和动作执行流程保持一致。录制会增加 CPU 渲染与视频编码时间；评估报告记录这些耗时。
+
+当前已经有两段可看的完整预览，来自现有 PPU 训练 checkpoint，在 CPU 上执行200步并录制：
+
+- `.runtime/flow_dp3/videos/ppu-smoke-preview/seed_1000.mp4`
+- `.runtime/flow_dp3/videos/ppu-smoke-preview/seed_1001.mp4`
+
+已解码验证每段201帧、512×512、20 FPS，约10.05秒；画面包含 Panda、方块和目标，结果仍为失败演示，不能当作成功策略视频。报告为 `.runtime/flow_dp3/eval-ppu-smoke-preview.json`。可以在阿里云 DSW 文件浏览器中打开/下载 MP4；`.runtime` 是隐藏目录，需要允许显示隐藏文件。视频、SDK 日志与权重受 `.gitignore` 排除，保留在服务器上。
+
+#### 同时在 W&B 查看评估结果和视频
+
+```bash
+python -B examples/baselines/flow_dp3/evaluate.py \
+    --checkpoint .runtime/flow_dp3/ppu-smoke/last.pt \
+    --device cuda:0 --episodes 2 --max-steps 200 \
+    --save-video --video-dir .runtime/flow_dp3/videos/ppu-wandb-eval \
+    --output .runtime/flow_dp3/eval-ppu-wandb-video.json \
+    --wandb-mode online --wandb-project flow_dp3 \
+    --wandb-name ppu-smoke-eval --wandb-upload-videos
+```
+
+评估单独创建 W&B run，记录每局成功状态、种子、耗时和动作裁剪比例，summary 中显示 `eval/success_once_rate` / `eval/success_end_rate`。只有显式添加 `--wandb-upload-videos` 时，才将 MP4 同时记录到 W&B；否则仅保留本地视频。评估日志位于报告旁的 `<报告名>-logging/`，W&B 页面链接也写入报告。
+
+本次验证：CPU 训练恢复及启用日志的 RNG 隔离通过；历史指标导入和视频记录接口通过 mock SDK 检查；真实 MP4 已生成并解码检查。当前工具未能获取 W&B 安装包，真实 SDK 离线检查暂时跳过，在线登录与同步需要在实例终端验证。安装 SDK 后可执行下列测试，其中 `test_real_sdk_offline` 会使用真实 SDK 创建离线日志：
+
+```bash
+python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
+```
 
 ## 9. 上游资源与平台支持
 

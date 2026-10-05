@@ -1,0 +1,2 @@
+# 可选：在已激活的本项目 venv 中安装，并保留 constraints-ppu.txt。
+wandb>=0.19,<1
