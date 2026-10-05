@@ -1,8 +1,0 @@
-{
-  "model": true,
-  "ema": true,
-  "sampler_rng": true,
-  "torch_rng": true,
-  "scheduler": true,
-  "step": 20
-}

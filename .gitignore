@@ -29,6 +29,25 @@ dist/
 # project-relevant
 imgui.ini
 
+# local PPU environment and generated runtime artifacts
+# Keep these files on the server; rebuild the environment from requirements.
+/.venv-ppu/
+/.venv/
+/venv/
+/.runtime/
+
+# local experiment outputs
+/wandb/
+/runs/
+/outputs/
+/checkpoints/
+/logs/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # directories that should be ignored in general
 # but can be excluded explicitly
 /tmp

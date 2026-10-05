@@ -1,5 +1,0 @@
-torch==2.9.0
-torchvision==0.24.0
-torchaudio==2.9.0
-numpy==1.26.0
-scipy==1.11.3
