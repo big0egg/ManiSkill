@@ -88,6 +88,26 @@ class DataContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PolicyConfig(horizon=15)
 
+    def test_default_crop_preserves_full_scene_points(self):
+        # 实际场景包含远处地面、桌腿与基座后方，不能只保留桌面操作区域。
+        generator = torch.Generator().manual_seed(17)
+        base = torch.rand(128, 3, generator=generator)
+        base = base * torch.tensor([100., 100., 1.9]) + torch.tensor([-49.385, -50., -0.92])
+        inverse = torch.eye(4)
+        pose = SimpleNamespace(inv=lambda: SimpleNamespace(to_transformation_matrix=lambda: inverse[None]))
+        tcp = torch.tensor([0.6, 0., 0.2])
+        agent = SimpleNamespace(robot=SimpleNamespace(pose=pose),
+                                tcp_pose=SimpleNamespace(p=tcp[None]))
+        obs = {"pointcloud": {"xyzw": torch.cat((base, torch.ones(128, 1)), dim=-1)[None]}}
+        features, detail = pointcloud_features(obs, agent, ObservationConfig(num_points=128))
+        self.assertEqual(detail["cropped_points"], len(base))
+        actual = features[0, :, :3] + tcp
+        # 无预采样且 FPS 保留所有索引时，逐点重建应完全覆盖输入场景。
+        for axis in (2, 1, 0):
+            actual = actual[torch.argsort(actual[:, axis], stable=True)]
+            base = base[torch.argsort(base[:, axis], stable=True)]
+        torch.testing.assert_close(actual, base, atol=1e-5, rtol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

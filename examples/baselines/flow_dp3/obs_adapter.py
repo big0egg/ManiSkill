@@ -7,6 +7,7 @@ import math
 import torch
 
 from ee_relation_encoder import farthest_point_indices, gather_points
+from scene_bounds import PICKCUBE_SCENE_CROP_MIN, PICKCUBE_SCENE_CROP_MAX
 
 
 STATE_FIELDS = {"qpos": [0, 9], "qvel": [9, 18], "tcp_base_pose_wxyz": [18, 25],
@@ -17,8 +18,8 @@ STATE_FIELDS = {"qpos": [0, 9], "qvel": [9, 18], "tcp_base_pose_wxyz": [18, 25],
 class ObservationConfig:
     num_points: int = 512
     length_scale: float = 1.0
-    crop_min: tuple = (0.05, -0.8, -0.1)
-    crop_max: tuple = (1.2, 0.8, 1.0)
+    crop_min: tuple = PICKCUBE_SCENE_CROP_MIN
+    crop_max: tuple = PICKCUBE_SCENE_CROP_MAX
     pre_sample_points: int = 4096
     sampling_seed: int = 42
 
