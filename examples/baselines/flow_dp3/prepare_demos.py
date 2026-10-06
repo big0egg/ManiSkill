@@ -187,9 +187,9 @@ def main():
     parser.add_argument("--num-points", type=int, default=512)
     parser.add_argument("--length-scale", type=float, default=1.0)
     parser.add_argument("--crop-min", type=float, nargs=3, default=list(ObservationConfig.crop_min),
-                        help="基座系 xyz 下界（米），默认覆盖完整 PickCube 场景")
+                        help="基座系 xyz 下界（米），默认保留 PickCube 工作区并排除地面")
     parser.add_argument("--crop-max", type=float, nargs=3, default=list(ObservationConfig.crop_max),
-                        help="基座系 xyz 上界（米），默认覆盖完整 PickCube 场景")
+                        help="基座系 xyz 上界（米），默认保留 PickCube 工作区并排除地面")
     args = parser.parse_args()
     if args.count < 0 or args.max_steps < 16 or args.max_attempts < 1 or (args.generate is not None and args.generate < 1):
         parser.error("count >= 0，max_steps >= 16，generate/max_attempts >= 1")

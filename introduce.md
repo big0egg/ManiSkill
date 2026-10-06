@@ -27,9 +27,9 @@ export MANISKILL_VULKAN_ICD=/usr/share/vulkan/icd.d/lvp_icd.json
 export VK_ICD_FILENAMES="$MANISKILL_VULKAN_ICD"
 
 # 数据文件位置和训练目录分别设置。
-export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.h5"
-# pickcube-001 已有训练结果；新训练使用新编号。
-export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-002"
+export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-roi-v4.h5"
+# 新 crop 数据从头训练，使用独立目录。
+export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-roi-v4"
 mkdir -p "$FLOW_RUN_ROOT" "$MPLCONFIGDIR" "$MS_ASSET_DIR"
 test -f "$VK_ICD_FILENAMES"
 ```
@@ -45,22 +45,27 @@ test -f "$VK_ICD_FILENAMES"
 | `MS_ASSET_DIR` / `MPLCONFIGDIR` | 可写目录路径 | 资产与 Matplotlib 缓存位置 |
 | `OMP_NUM_THREADS` / `MKL_NUM_THREADS` / `OPENBLAS_NUM_THREADS` | 正整数，本环境沿用 `1` | CPU 数值库线程数 |
 | `FLOW_DATA` | 已转换或将生成的训练 `.h5` 文件路径 | 数据采集输出和训练输入 |
-| `FLOW_RUN_ROOT` | 可写目录路径，如 `…/pickcube-002` | 本次实验输出根目录；新训练换编号，恢复训练用原目录 |
+| `FLOW_RUN_ROOT` | 可写目录路径，如 `…/pickcube-roi-v4` | 本次实验输出根目录；新训练换目录，恢复训练用原目录 |
 
 ## 2. 数据录制与转换
 
 ### 2.1 生成100条成功示范
 
-工作区已经有 `pickcube-100-scene-v3.h5` 时，下面的命令直接使用现有文件。缺少数据时，会生成120条成功原始轨迹，再回放筛选100条最终成功的训练示范。新版本使用完整场景 crop；旧 `pickcube-100-v2.h5` 保留原 crop，不会因修改程序自动更新。
+工作区已经有 `pickcube-100-roi-v4.h5` 时，下面的命令直接使用现有文件。缺少训练数据时，优先回放已有的 scene-v3 原始轨迹；没有原始轨迹时生成120条成功轨迹，再筛选100条最终成功的训练示范。当前默认 crop 保留机械臂、方块和工作区桌面并移除背景地面；旧训练数据不会因修改程序自动更新。
 
 ```bash
 if [ ! -f "$FLOW_DATA" ]; then
-    python -B examples/baselines/flow_dp3/prepare_demos.py \
-        --generate 120 --count 100 --start-seed 0 \
-        --max-attempts 300 --max-steps 200 \
-        --num-points 512 --length-scale 1.0 \
-        --crop-min -50.5 -50.5 -1.1 --crop-max 51.5 50.5 1.5 \
-        --output "$FLOW_DATA"
+    if [ -f "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5" ]; then
+        python -B examples/baselines/flow_dp3/prepare_demos.py \
+            --source "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5" \
+            --count 100 --max-steps 200 \
+            --num-points 512 --length-scale 1.0 --output "$FLOW_DATA"
+    else
+        python -B examples/baselines/flow_dp3/prepare_demos.py \
+            --generate 120 --count 100 --start-seed 0 \
+            --max-attempts 300 --max-steps 200 \
+            --num-points 512 --length-scale 1.0 --output "$FLOW_DATA"
+    fi
 fi
 
 ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
@@ -68,21 +73,23 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 录制使用仓库内置运动规划器。原始关节控制轨迹成功，不保证转换为末端控制后仍成功，因此生成数量预留余量，尝试次数也高于生成目标。需要重新采集时先将 `FLOW_DATA` 改成新文件名。
 
-以 `pickcube-100-scene-v3.h5` 为例：
+以复用 scene-v3 原始轨迹生成 `pickcube-100-roi-v4.h5` 为例：
 
 | 文件 | 内容 |
 | --- | --- |
 | `pickcube-100-scene-v3.raw.h5` / `.raw.json` | 原始动作、环境状态和轨迹元信息 |
-| `pickcube-100-scene-v3.h5` | 训练数据：每条轨迹有 `T+1` 帧点云 / 28维状态和 `T` 个4维动作 |
-| `pickcube-100-scene-v3.json` | 数据契约、源文件指纹、成功数量与拒绝回放记录 |
+| `pickcube-100-roi-v4.h5` | 新 crop 训练数据：每条轨迹有 `T+1` 帧点云 / 28维状态和 `T` 个4维动作 |
+| `pickcube-100-roi-v4.json` | 数据契约、源文件路径与指纹、成功数量与拒绝回放记录 |
+
+`--generate` 模式在输出文件旁生成同名 `.raw.h5` / `.raw.json`；`--source` 模式复用已有原始文件，实际路径记录于 manifest，可视化回放按此路径查找。
 
 ### 2.2 可选：转换已有原始轨迹
 
-已有原始 `.raw.h5` 时可单独回放转换，不必重新运行规划器。以下示例复用旧版原始轨迹，并按当前完整场景 crop 写出新的训练数据；也可把 source 改为第2.1节生成的原始文件。输出到实验目录后切换后续训练的数据路径：
+已有原始 `.raw.h5` 时可单独回放转换，不必重新运行规划器。以下示例复用旧版原始轨迹，并按当前工作区 crop 写出新的训练数据；也可把 source 改为第2.1节生成的原始文件。输出到实验目录后切换后续训练的数据路径：
 
 ```bash
 python -B examples/baselines/flow_dp3/prepare_demos.py \
-    --source "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.raw.h5" \
+    --source "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5" \
     --count 100 --max-steps 200 \
     --output "$FLOW_RUN_ROOT/demos-converted.h5"
 
@@ -104,10 +111,10 @@ export FLOW_DATA="$FLOW_RUN_ROOT/demos-converted.h5"
 | `--max-steps` | `200` | 整数且 ≥16，如 `200`、`300` | 环境单局步数上限及转换回放的长度过滤上限 |
 | `--num-points` | `512` | 128～4096的整数，如 `512`、`1024` | 当前预采样设置下，每帧 FPS 保留的点数 |
 | `--length-scale` | `1.0` | 有限正数，如 `1.0` | 相对 xyz 和距离统一除以尺度 L，须与 policy 配置相同 |
-| `--crop-min` | `-50.5 -50.5 -1.1` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪下界，单位米；逐轴小于 crop-max |
-| `--crop-max` | `51.5 50.5 1.5` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪上界，单位米；裁剪后须有足够点数 |
+| `--crop-min` | `-0.2 -0.3 -0.05` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪下界，单位米；逐轴小于 crop-max |
+| `--crop-max` | `1.1 0.3 1.0` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪上界，单位米；裁剪后须有足够点数 |
 
-CLI 中的裁剪参数写成 `--crop-min -50.5 -50.5 -1.1`，不要写成 YAML 列表格式。默认范围包含桌子、机器人、任务活动区域及完整100×100米背景地面；Panda 基座位于世界 x=-0.615米，因此边界按基座系计算。采样前保留整个可见场景，不按目标附近裁剪。宽 crop 仅保证不因空间过滤丢点，后续4096点预采样与512点 FPS 仍会减少点数。
+CLI 中的裁剪参数写成 `--crop-min -0.2 -0.3 -0.05`，不要写成 YAML 列表格式。范围在世界系转基座系后、减 TCP 前应用；Panda 基座位于世界 x=-0.615米。默认范围排除背景地面，保留机械臂、方块和工作区桌面。后续最多4096点预采样与512点 FPS 仍会减少点数，512是整个场景的总点数，不是机械臂与方块各512点。五个任务的预设范围及支持边界见 README 第6节。
 
 修改点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配的模型。评估从 checkpoint 读取采集时的 crop；旧模型仍使用旧范围。第3.2节恢复旧实验时必须沿用旧数据。
 

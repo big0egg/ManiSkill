@@ -190,9 +190,9 @@ def main():
     parser.add_argument("--radius2", type=float, default=0.20, help="烟雾验证半径，单位米")
     parser.add_argument("--length-scale", type=float, default=1.0)
     parser.add_argument("--crop-min", type=float, nargs=3, default=list(PICKCUBE_SCENE_CROP_MIN),
-                        help="基座系 xyz 下界（米），默认覆盖完整 PickCube 场景")
+                        help="基座系 xyz 下界（米），默认保留 PickCube 工作区并排除地面")
     parser.add_argument("--crop-max", type=float, nargs=3, default=list(PICKCUBE_SCENE_CROP_MAX),
-                        help="基座系 xyz 上界（米），默认覆盖完整 PickCube 场景")
+                        help="基座系 xyz 上界（米），默认保留 PickCube 工作区并排除地面")
     parser.add_argument("--output", type=Path, help="可选 JSON 报告路径")
     parser.add_argument("--worker", choices=CHECKS, help=argparse.SUPPRESS)
     args = parser.parse_args()

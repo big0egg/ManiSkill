@@ -7,7 +7,7 @@ import math
 import torch
 
 from ee_relation_encoder import farthest_point_indices, gather_points
-from scene_bounds import PICKCUBE_SCENE_CROP_MIN, PICKCUBE_SCENE_CROP_MAX
+from scene_bounds import PICKCUBE_SCENE_CROP_MIN, PICKCUBE_SCENE_CROP_MAX, get_scene_crop_bounds
 
 
 STATE_FIELDS = {"qpos": [0, 9], "qvel": [9, 18], "tcp_base_pose_wxyz": [18, 25],
@@ -45,7 +45,15 @@ class ObservationConfig:
                 "reconfiguration_freq": 1}
 
 
-def pointcloud_features(obs, agent, config):
+def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1"):
+    """共享点云采样；未传 config 时按任务选 crop，默认输出512点。
+
+    显式 config（例如数据或 checkpoint 中的观测配置）优先，保持历史契约。
+    其他任务可复用此点云接口；adapt_observation 的28维状态仍只适配 PickCube。
+    """
+    if config is None:
+        crop_min, crop_max = get_scene_crop_bounds(env_id)
+        config = ObservationConfig(crop_min=crop_min, crop_max=crop_max)
     xyzw = torch.as_tensor(obs["pointcloud"]["xyzw"]).detach().to("cpu", torch.float32)
     if xyzw.ndim != 3 or xyzw.shape[0] != 1 or xyzw.shape[-1] != 4:
         raise ValueError(f"预期单环境 [1,N,4] xyzw，实际 {tuple(xyzw.shape)}")
@@ -71,6 +79,7 @@ def pointcloud_features(obs, agent, config):
     if not torch.isfinite(features).all():
         raise RuntimeError("距离点云包含 NaN/Inf")
     return features, {"valid_points": int(valid.sum()), "cropped_points": int(keep.sum()),
+                      "sampled_points": int(sampled.shape[1]),
                       "tcp_base_m": tcp_base.tolist(), "feature_shape": list(features.shape),
                       "distance_range_m": [float(distances.min()), float(distances.max())],
                       "distance_norm_error": float((features[..., 3] - features[..., :3].norm(dim=-1)).abs().max())}

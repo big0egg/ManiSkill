@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DemoDataset
 from obs_adapter import ObservationConfig, pointcloud_features
 from policy import LimitsNormalizer, PolicyConfig
+from scene_bounds import TASK_SCENE_CROP_BOUNDS
 
 
 class DataContractTests(unittest.TestCase):
@@ -88,25 +89,51 @@ class DataContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PolicyConfig(horizon=15)
 
-    def test_default_crop_preserves_full_scene_points(self):
-        # 实际场景包含远处地面、桌腿与基座后方，不能只保留桌面操作区域。
+    def test_task_crop_removes_ground_and_keeps_512_total_points(self):
+        # 同一输入中的正/负Y探针区分三个任务工作区；地面必须被全部排除。
         generator = torch.Generator().manual_seed(17)
-        base = torch.rand(128, 3, generator=generator)
-        base = base * torch.tensor([100., 100., 1.9]) + torch.tensor([-49.385, -50., -0.92])
+        workspace = torch.rand(512, 3, generator=generator)
+        workspace = workspace * torch.tensor([0.4, 0.2, 0.3]) + torch.tensor([0.4, -0.1, 0.1])
+        probes = torch.tensor([[0.6, -0.45, 0.2], [0.6, 0.45, 0.2]])
+        ground = torch.rand(128, 3, generator=generator)
+        ground[:, 2] = -0.92
+        base = torch.cat((workspace, probes, ground))
         inverse = torch.eye(4)
         pose = SimpleNamespace(inv=lambda: SimpleNamespace(to_transformation_matrix=lambda: inverse[None]))
         tcp = torch.tensor([0.6, 0., 0.2])
         agent = SimpleNamespace(robot=SimpleNamespace(pose=pose),
                                 tcp_pose=SimpleNamespace(p=tcp[None]))
+        obs = {"pointcloud": {"xyzw": torch.cat((base, torch.ones(len(base), 1)), dim=-1)[None]}}
+        for task in TASK_SCENE_CROP_BOUNDS:
+            with self.subTest(task=task):
+                features, detail = pointcloud_features(obs, agent, env_id=task)
+                expected = 514 if task == "PegInsertionSide-v1" else (513 if task == "DrawTriangle-v1" else 512)
+                self.assertEqual(detail["cropped_points"], expected)
+                self.assertEqual(detail["sampled_points"], 512)
+                self.assertEqual(tuple(features.shape), (1, 512, 4))
+                actual = features[0, :, :3] + tcp
+                low, high = TASK_SCENE_CROP_BOUNDS[task]
+                self.assertTrue(((actual >= torch.tensor(low)) & (actual <= torch.tensor(high))).all())
+                self.assertGreater(float(actual[:, 2].min()), 0)
+        with self.assertRaisesRegex(ValueError, "未配置任务"):
+            pointcloud_features(obs, agent, env_id="Unknown-v1")
+
+    def test_explicit_legacy_crop_keeps_checkpoint_contract(self):
+        legacy = ObservationConfig(num_points=128, crop_min=(-50.5, -50.5, -1.1),
+                                   crop_max=(51.5, 50.5, 1.5))
+        restored = ObservationConfig(**legacy.contract()["pointcloud"])
+        self.assertEqual(restored.contract(), legacy.contract())
+        generator = torch.Generator().manual_seed(31)
+        base = torch.rand(128, 3, generator=generator)
+        base[:, 2] = -0.92
+        pose = SimpleNamespace(inv=lambda: SimpleNamespace(to_transformation_matrix=lambda: torch.eye(4)[None]))
+        agent = SimpleNamespace(robot=SimpleNamespace(pose=pose),
+                                tcp_pose=SimpleNamespace(p=torch.zeros(1, 3)))
         obs = {"pointcloud": {"xyzw": torch.cat((base, torch.ones(128, 1)), dim=-1)[None]}}
-        features, detail = pointcloud_features(obs, agent, ObservationConfig(num_points=128))
-        self.assertEqual(detail["cropped_points"], len(base))
-        actual = features[0, :, :3] + tcp
-        # 无预采样且 FPS 保留所有索引时，逐点重建应完全覆盖输入场景。
-        for axis in (2, 1, 0):
-            actual = actual[torch.argsort(actual[:, axis], stable=True)]
-            base = base[torch.argsort(base[:, axis], stable=True)]
-        torch.testing.assert_close(actual, base, atol=1e-5, rtol=1e-5)
+        features, detail = pointcloud_features(obs, agent, restored)
+        self.assertEqual(detail["cropped_points"], 128)
+        self.assertEqual(detail["sampled_points"], 128)
+        self.assertTrue((features[0, :, 2] < -0.9).all())
 
 
 if __name__ == "__main__":
