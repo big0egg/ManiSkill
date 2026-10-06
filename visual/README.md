@@ -24,7 +24,7 @@ cd /mnt/workspace/ManiSkill
 
 ```bash
 .venv-ppu/bin/python -B visual/pointcloud.py \
-  --dataset .runtime/flow_dp3/pickcube-100-roi-v4.h5 \
+  --dataset .runtime/flow_dp3/pickcube-100-scene-v3.h5 \
   --episode 0 --frame 0 \
   --export-backend matplotlib --export-view both \
   --fps 20 \
