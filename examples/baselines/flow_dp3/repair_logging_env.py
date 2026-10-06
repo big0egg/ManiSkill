@@ -12,7 +12,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TARGET = {"wandb": "0.19.11", "protobuf": "3.20.3", "click": "8.1.7"}
+TARGET = {"wandb": "0.22.3", "protobuf": "3.20.3", "click": "8.1.7"}
 # 只处理本次 W&B 0.30 安装的已确认版本，不卸载镜像系统包。
 OVERRIDES = {
     "opentelemetry-api": "1.45.0",

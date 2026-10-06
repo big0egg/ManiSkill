@@ -28,7 +28,7 @@ README 说明项目、环境和排错；introduce.md 集中提供数据录制、
 | 小模型训练与恢复 | CPU 与 PPU 均完成20次更新；CPU 10+10步恢复与连续20步结果一致 |
 | 小模型闭环评估 | 可运行；现有 PPU 小模型2局、每局200步的成功率为0/2 |
 | 推理视频 | 已生成并解码检查两段512×512、20 FPS 的 MP4 |
-| W&B 依赖 | 已恢复为 `wandb 0.19.11`、`protobuf 3.20.3`、`click 8.1.7`；在线页面以实际运行结果为准 |
+| W&B 依赖 | 安装配置固定 `wandb 0.22.3`、`protobuf 3.20.3`、`click 8.1.7`；现有环境尚未升级，新版本登录与运行待验证 |
 | 完整模型 | `[512,1024,2048]` 主干的 PPU 训练效果与吞吐量尚待验证 |
 
 以上确认了移植链路可运行。20步小模型训练用于流程检查，当前还没有收敛性能结果。历史报告和数据位于 `.runtime/`，该目录不随 Git 仓库上传。
@@ -113,7 +113,9 @@ pip_install_public -r examples/baselines/flow_dp3/requirements-logging.txt
 wandb login
 ```
 
-本镜像固定 `wandb==0.19.11`、`protobuf==3.20.3`、`click==8.1.7`。这个 SDK 版本支持 Python 3.12，允许原有 protobuf，且不依赖 OpenTelemetry。[官方依赖定义](https://github.com/wandb/wandb/blob/v0.19.11/pyproject.toml)
+本镜像固定 `wandb==0.22.3`、`protobuf==3.20.3`、`click==8.1.7`。这个 SDK 版本支持 Python 3.12，允许原有 protobuf，且不依赖 OpenTelemetry。[官方依赖定义](https://github.com/wandb/wandb/blob/v0.22.3/pyproject.toml)
+
+W&B 0.22.3 开始支持超过40字符的 API key，可使用新生成的86字符密钥。[官方发布说明](https://github.com/wandb/wandb/releases/tag/v0.22.3) 已安装旧版 `0.19.11` 的实例需重新执行本节安装命令，再执行 `wandb login --relogin`；仅修改仓库配置不会升级现有环境。安装前需在当前终端定义第3.3节的 `pip_install_public` 函数。
 
 已经安装过 W&B 0.30.0 且出现依赖冲突的环境，按第7.3节修复后再使用。API key 在实例终端登录时输入。
 
@@ -251,7 +253,7 @@ FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环�
 
 ### 7.3 W&B 0.30.0 依赖冲突
 
-此修复适用于此前安装导致的本地 OpenTelemetry 1.45.0 / 0.66b0 覆盖、protobuf 7.36.2 和 click 8.5.0。已经修复成功的实例无需重复执行。
+此修复适用于此前安装导致的本地 OpenTelemetry 1.45.0 / 0.66b0 覆盖、protobuf 7.36.2 和 click 8.5.0。已经修复成功且 W&B 为 `0.22.3` 的实例无需重复执行；此前修复为 `0.19.11` 的实例按第3.4节升级即可。
 
 ```bash
 python -B examples/baselines/flow_dp3/repair_logging_env.py --dry-run
