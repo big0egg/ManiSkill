@@ -310,6 +310,8 @@ def main():
     parser.add_argument('--play', action='store_true', help='GUI 启动后自动播放')
     parser.add_argument('--export-backend', choices=['matplotlib', 'open3d'], default='matplotlib',
                         help='PNG/MP4 后端：默认 CPU/Agg，无需 Open3D 或桌面；GUI/PLY 仍使用 Open3D')
+    parser.add_argument('--export-view', choices=['both', 'fps', 'distance'], default='both',
+                        help='Matplotlib PNG/MP4：默认左右对照；fps 为采样后 XYZ，distance 为原距离矢量单图；Open3D 保留原单图')
     parser.add_argument('--png', type=Path, help='离屏导出指定帧 PNG')
     parser.add_argument('--video', type=Path, help='离屏导出从指定帧开始的点云 MP4')
     parser.add_argument('--ply', type=Path, help='导出指定帧距离着色点云 PLY')

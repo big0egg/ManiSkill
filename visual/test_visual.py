@@ -85,7 +85,7 @@ class ExportTests(unittest.TestCase):
         self.ep = Episode('episode_00000', features, states, np.zeros((2, 4)), {},
                           {'pointcloud': {'length_scale': 2},
                            'state_fields': {'tcp_base_pose_wxyz': [18, 25], 'goal_base_pos': [25, 28]}})
-        self.args = SimpleNamespace(export_backend='matplotlib', coordinate_frame='base', frame=1,
+        self.args = SimpleNamespace(export_backend='matplotlib', export_view='both', coordinate_frame='base', frame=1,
                                     near_radius=None, color_max=None, vector_count=2, point_size=6,
                                     fps=10, ply=None, png=None, video=None)
 
@@ -100,13 +100,49 @@ class ExportTests(unittest.TestCase):
                  patch.dict(os.environ, {'DISPLAY': '', 'WAYLAND_DISPLAY': ''}):
                 export(self.ep, self.args)
             with Image.open(self.args.png) as im:
-                self.assertEqual(im.size, (960, 768))
+                self.assertEqual(im.size, (1920, 768))
                 self.assertGreater(np.asarray(im).max() - np.asarray(im).min(), 200)
             with imageio.get_reader(str(self.args.video)) as reader:
                 self.assertEqual(reader.get_meta_data()['fps'], 10)
                 frames = list(reader.iter_data())
             self.assertEqual(len(frames), 2)  # 起始帧1和终止观测帧2。
-            self.assertEqual(frames[0].shape, (768, 960, 3))
+            self.assertEqual(frames[0].shape, (768, 1920, 3))
+
+    def test_dual_views_show_same_fps_points_and_only_distance_view_has_vectors(self):
+        from matplotlib_cloud import MatplotlibCloud
+        renderer = MatplotlibCloud(self.ep, self.args)
+        try:
+            for radius, expected in [(None, [[.9, 0, .2], [.5, .6, .2]]),
+                                     (.5, [[.9, 0, .2]])]:
+                self.args.near_radius = radius
+                renderer.render(1)
+                for kind in ('fps', 'distance'):
+                    plotted = np.column_stack(renderer.point_artists[kind]._offsets3d)
+                    np.testing.assert_allclose(plotted, expected, atol=1e-7)
+                self.assertIsNone(renderer.point_artists['fps'].get_array())
+                np.testing.assert_allclose(renderer.point_artists['distance'].get_array(),
+                                           [.4, .6] if radius is None else [.4])
+                left, right = renderer.axes['fps'], renderer.axes['distance']
+                for axis in ('x', 'y', 'z'):
+                    self.assertEqual(getattr(left, 'get_' + axis + 'lim')(),
+                                     getattr(right, 'get_' + axis + 'lim')())
+                np.testing.assert_allclose(left.get_proj(), right.get_proj())
+                # 两图均有点、三个标记及三个基座轴；右图另有一个矢量集合。
+                self.assertEqual(len(right.collections), len(left.collections) + 1)
+        finally:
+            renderer.close()
+
+    def test_single_view_options_keep_original_export_size(self):
+        from matplotlib_cloud import MatplotlibCloud
+        for kind in ('fps', 'distance'):
+            with self.subTest(view=kind):
+                self.args.export_view = kind
+                renderer = MatplotlibCloud(self.ep, self.args)
+                try:
+                    self.assertEqual(renderer.render(0).shape, (768, 960, 3))
+                    self.assertEqual(list(renderer.axes), [kind])
+                finally:
+                    renderer.close()
 
     def test_empty_near_filter_and_relative_frame_keep_camera_and_color_range(self):
         from matplotlib_cloud import MatplotlibCloud
