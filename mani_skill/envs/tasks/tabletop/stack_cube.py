@@ -8,6 +8,7 @@ from mani_skill.agents.robots import Fetch, Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.utils import randomization
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils.task_pointcloud import make_pointcloud_camera_config
 from mani_skill.utils import common, sapien_utils
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
@@ -43,6 +44,8 @@ class StackCubeEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
+        if self.robot_uids in ("panda", "panda_wristcam"):
+            return [make_pointcloud_camera_config("StackCube-v1")]
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
         return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
 

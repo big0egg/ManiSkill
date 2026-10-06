@@ -12,7 +12,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DemoDataset
-from obs_adapter import ObservationConfig, pointcloud_features
+from obs_adapter import ObservationConfig, config_from_contract, make_env, pointcloud_features
+from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
+from unittest.mock import patch
 from policy import LimitsNormalizer, PolicyConfig
 from scene_bounds import TASK_SCENE_CROP_BOUNDS
 
@@ -90,11 +92,11 @@ class DataContractTests(unittest.TestCase):
             PolicyConfig(horizon=15)
 
     def test_task_crop_removes_ground_and_keeps_512_total_points(self):
-        # 同一输入中的正/负Y探针区分三个任务工作区；地面必须被全部排除。
+        # 操作区的边界探针区分任务；背景地面必须被全部排除。
         generator = torch.Generator().manual_seed(17)
         workspace = torch.rand(512, 3, generator=generator)
-        workspace = workspace * torch.tensor([0.4, 0.2, 0.3]) + torch.tensor([0.4, -0.1, 0.1])
-        probes = torch.tensor([[0.6, -0.45, 0.2], [0.6, 0.45, 0.2]])
+        workspace = workspace * torch.tensor([0.18, 0.12, 0.3]) + torch.tensor([0.5, -0.08, 0.1])
+        probes = torch.tensor([[0.6, -0.3, 0.2], [0.6, 0.3, 0.2], [0.6, 0.55, 0.2]])
         ground = torch.rand(128, 3, generator=generator)
         ground[:, 2] = -0.92
         base = torch.cat((workspace, probes, ground))
@@ -107,7 +109,8 @@ class DataContractTests(unittest.TestCase):
         for task in TASK_SCENE_CROP_BOUNDS:
             with self.subTest(task=task):
                 features, detail = pointcloud_features(obs, agent, env_id=task)
-                expected = 514 if task == "PegInsertionSide-v1" else (513 if task == "DrawTriangle-v1" else 512)
+                expected = 512 + {"PickCube-v1": 0, "PushCube-v1": 0, "StackCube-v1": 2,
+                                  "PegInsertionSide-v1": 3, "DrawTriangle-v1": 1}[task]
                 self.assertEqual(detail["cropped_points"], expected)
                 self.assertEqual(detail["sampled_points"], 512)
                 self.assertEqual(tuple(features.shape), (1, 512, 4))
@@ -134,6 +137,46 @@ class DataContractTests(unittest.TestCase):
         self.assertEqual(detail["cropped_points"], 128)
         self.assertEqual(detail["sampled_points"], 128)
         self.assertTrue((features[0, :, 2] < -0.9).all())
+
+    def test_old_contract_restores_old_camera_instead_of_current_default(self):
+        config = ObservationConfig(crop_min=(-.2, -.3, -.05), crop_max=(1.1, .3, 1.))
+        contract = config.contract(sensor_configs={"shader_pack": "default"})
+        contract["version"] = 1
+        self.assertEqual(config_from_contract(contract), config)
+        with patch("gymnasium.make") as create:
+            make_env(contract=contract)
+        sensors = create.call_args.kwargs["sensor_configs"]
+        self.assertEqual(sensors["base_camera"]["width"], 128)
+        self.assertEqual(sensors["base_camera"]["pose"][:3], pointcloud_sensor_configs(legacy_pickcube=True)["base_camera"]["pose"][:3])
+        self.assertNotEqual(sensors, pointcloud_sensor_configs())
+
+    def test_recorded_camera_survives_later_default_changes_and_bad_metadata_rejected(self):
+        contract = ObservationConfig().contract()
+        contract["sensor_configs"]["base_camera"]["width"] = 320
+        contract["sensor_configs"]["base_camera"]["pose"][0] = .4
+        config_from_contract(contract)
+        with patch("gymnasium.make") as create:
+            make_env(contract=contract)
+        self.assertEqual(create.call_args.kwargs["sensor_configs"], contract["sensor_configs"])
+        contract["sensor_configs"]["base_camera"]["pose"][3:] = [0, 0, 0, 0]
+        with self.assertRaisesRegex(ValueError, "单位四元数"):
+            config_from_contract(contract)
+        contract = ObservationConfig().contract()
+        contract["action_dim"] = 7
+        with self.assertRaisesRegex(ValueError, "适配接口"):
+            config_from_contract(contract)
+
+    def test_panda_stick_tcp_link_works_in_pointcloud_interface(self):
+        config = ObservationConfig(num_points=128, crop_min=(.28, -.35, -.03), crop_max=(.80, .18, .52))
+        pose = SimpleNamespace(inv=lambda: SimpleNamespace(to_transformation_matrix=lambda: torch.eye(4)[None]))
+        tcp = SimpleNamespace(p=torch.tensor([[.6, 0, .2]]))
+        xyz = torch.rand(128, 3, generator=torch.Generator().manual_seed(17))*.1 + torch.tensor([.5, -.1, .1])
+        obs = {"pointcloud": {"xyzw": torch.cat((xyz, torch.ones(128, 1)), -1)[None]}}
+        arm = SimpleNamespace(robot=SimpleNamespace(pose=pose), tcp_pose=tcp)
+        stick = SimpleNamespace(robot=arm.robot, tcp=SimpleNamespace(pose=tcp))
+        expected, _ = pointcloud_features(obs, arm, config)
+        actual, _ = pointcloud_features(obs, stick, config)
+        torch.testing.assert_close(actual, expected)
 
 
 if __name__ == "__main__":

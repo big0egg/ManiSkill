@@ -17,9 +17,6 @@ import sys
 import time
 import traceback
 
-from scene_bounds import PICKCUBE_SCENE_CROP_MIN, PICKCUBE_SCENE_CROP_MAX
-
-
 CHECKS = ("metadata", "torch-cpu", "torch-ppu", "encoder-cpu", "encoder-ppu",
           "sim", "pointcloud")
 RESULT_PREFIX = "FLOW_DP3_PROBE_RESULT="
@@ -104,16 +101,23 @@ def check_env(args, visual):
     import torch
     import mani_skill.envs  # 注册当前独立仓库的任务
     from ee_relation_encoder import EERelationPointNetPPEncoder
-    from obs_adapter import pointcloud_features  # 与示范处理和闭环评估共用；仅 worker 导入
+    from obs_adapter import ObservationConfig, pointcloud_features  # 仅 worker 导入
+    from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
     from mani_skill import PACKAGE_ASSET_DIR
     # Panda 使用仓库内置资产；资产缺失时立即报错，不触发交互下载。
     urdf = PACKAGE_ASSET_DIR / "robots/panda/panda_v2.urdf"
     if not urdf.is_file():
         raise FileNotFoundError(f"Panda 内置资产缺失：{urdf}")
+    config = (ObservationConfig(
+        num_points=args.num_points, length_scale=args.length_scale,
+        crop_min=tuple(args.crop_min) if args.crop_min is not None else ObservationConfig.crop_min,
+        crop_max=tuple(args.crop_max) if args.crop_max is not None else ObservationConfig.crop_max,
+    ) if visual else None)
     env = gym.make("PickCube-v1", robot_uids="panda", num_envs=1,
                    obs_mode="pointcloud" if visual else "state_dict",
                    control_mode="pd_ee_delta_pos", sim_backend="physx_cpu",
                    render_backend=args.render_backend if visual else "none",
+                   sensor_configs=pointcloud_sensor_configs(), reconfiguration_freq=1,
                    render_mode=None)
     try:
         env.action_space.seed(42)
@@ -130,7 +134,7 @@ def check_env(args, visual):
         # 检查 reset 观测，以及每个环境 step 后的新观测。
         for step in range(args.steps + 1):
             if visual:
-                features, frame = pointcloud_features(obs, env.unwrapped.agent, args)
+                features, frame = pointcloud_features(obs, env.unwrapped.agent, config)
                 with torch.no_grad():
                     encoded = model(features)
                 if encoded.shape != (1, 64) or not torch.isfinite(encoded).all():
@@ -151,6 +155,9 @@ def check_env(args, visual):
                   "task_goal_available": "goal_pos" in obs.get("extra", {})}
         if visual:
             result["frames"] = frames
+            result["sensor_configs"] = pointcloud_sensor_configs()
+            result["crop_min"] = config.crop_min
+            result["crop_max"] = config.crop_max
         return result
     finally:
         env.close()
@@ -189,10 +196,10 @@ def main():
     parser.add_argument("--radius1", type=float, default=0.10, help="烟雾验证半径，单位米")
     parser.add_argument("--radius2", type=float, default=0.20, help="烟雾验证半径，单位米")
     parser.add_argument("--length-scale", type=float, default=1.0)
-    parser.add_argument("--crop-min", type=float, nargs=3, default=list(PICKCUBE_SCENE_CROP_MIN),
-                        help="基座系 xyz 下界（米），默认保留 PickCube 工作区并排除地面")
-    parser.add_argument("--crop-max", type=float, nargs=3, default=list(PICKCUBE_SCENE_CROP_MAX),
-                        help="基座系 xyz 上界（米），默认保留 PickCube 工作区并排除地面")
+    parser.add_argument("--crop-min", type=float, nargs=3,
+                        help="基座系 xyz 下界（米），默认目标优先的 PickCube 操作区")
+    parser.add_argument("--crop-max", type=float, nargs=3,
+                        help="基座系 xyz 上界（米），默认目标优先的 PickCube 操作区")
     parser.add_argument("--output", type=Path, help="可选 JSON 报告路径")
     parser.add_argument("--worker", choices=CHECKS, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -201,8 +208,9 @@ def main():
     if any(not math.isfinite(x) or x <= 0 for x in
            (args.timeout, args.radius1, args.radius2, args.length_scale)):
         parser.error("timeout、半径和 length-scale 必须是有限正数")
-    if any(not math.isfinite(x) for x in args.crop_min + args.crop_max) or any(
-            a >= b for a, b in zip(args.crop_min, args.crop_max)):
+    if any(not math.isfinite(x) for x in (args.crop_min or []) + (args.crop_max or [])) or (
+            args.crop_min is not None and args.crop_max is not None and
+            any(a >= b for a, b in zip(args.crop_min, args.crop_max))):
         parser.error("裁剪边界必须有限，且每个 min 都小于对应 max")
     if args.worker:
         return worker(args.worker, args)
@@ -218,8 +226,11 @@ def main():
         command = [sys.executable, "-B", str(Path(__file__).resolve()), "--worker", name,
                    "--render-backend", args.render_backend, "--steps", str(args.steps),
                    "--num-points", str(args.num_points), "--radius1", str(args.radius1),
-                   "--radius2", str(args.radius2), "--length-scale", str(args.length_scale),
-                   "--crop-min", *map(str, args.crop_min), "--crop-max", *map(str, args.crop_max)]
+                   "--radius2", str(args.radius2), "--length-scale", str(args.length_scale)]
+        if args.crop_min is not None:
+            command += ["--crop-min", *map(str, args.crop_min)]
+        if args.crop_max is not None:
+            command += ["--crop-max", *map(str, args.crop_max)]
         started = time.monotonic()
         try:
             completed = subprocess.run(command, capture_output=True, text=True, env=env,

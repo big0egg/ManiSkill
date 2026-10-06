@@ -98,7 +98,7 @@ def prepare(args):
         raise ValueError(f"仅支持 Panda，原数据 robot_uids={robot}")
     config = ObservationConfig(num_points=args.num_points, length_scale=args.length_scale,
                                crop_min=tuple(args.crop_min), crop_max=tuple(args.crop_max))
-    target = ObservationCollector(make_env(max_episode_steps=args.max_steps), config)
+    target = ObservationCollector(make_env(max_episode_steps=args.max_steps, contract=config.contract()), config)
     original = make_env("pd_joint_pos", visual=False, max_episode_steps=args.max_steps)
     attempts, saved, rejected = 0, [], []
     temporary = output.with_suffix(".partial.h5")
@@ -187,9 +187,9 @@ def main():
     parser.add_argument("--num-points", type=int, default=512)
     parser.add_argument("--length-scale", type=float, default=1.0)
     parser.add_argument("--crop-min", type=float, nargs=3, default=list(ObservationConfig.crop_min),
-                        help="基座系 xyz 下界（米），默认保留 PickCube 工作区并排除地面")
+                        help="基座系 xyz 下界（米），默认目标优先的 PickCube 操作区")
     parser.add_argument("--crop-max", type=float, nargs=3, default=list(ObservationConfig.crop_max),
-                        help="基座系 xyz 上界（米），默认保留 PickCube 工作区并排除地面")
+                        help="基座系 xyz 上界（米），默认目标优先的 PickCube 操作区")
     args = parser.parse_args()
     if args.count < 0 or args.max_steps < 16 or args.max_attempts < 1 or (args.generate is not None and args.generate < 1):
         parser.error("count >= 0，max_steps >= 16，generate/max_attempts >= 1")

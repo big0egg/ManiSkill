@@ -1,18 +1,15 @@
 """五个任务的点云工作区边界：世界系转基座系后、减 TCP 前裁剪，单位米。
 
-PickCube 的10条轨迹及其他任务各3条成功轨迹，共2402帧验证：
-保留全部原始可见机械臂与任务目标点，移除地面（高度约 -0.920m）。
-DrawTriangle 裁去部分外围空白画布，保留可见轮廓及墨迹。
+采用 testpointcloud 实验确定的操作区，优先目标与末端，允许裁掉部分机械臂。
+相机与 crop 共用 mani_skill.utils.task_pointcloud 中的正式预设。
 边界不改变长度尺度、编码器邻域半径或 FPS 总点数；默认仍为512点。
 这些是工作区预设，并非任意机器人姿态的全身包围盒。
 """
 
+from mani_skill.utils.task_pointcloud import TASK_POINTCLOUD_PRESETS
+
 TASK_SCENE_CROP_BOUNDS = {
-    "PickCube-v1": ((-0.2, -0.3, -0.05), (1.1, 0.3, 1.0)),
-    "PushCube-v1": ((-0.2, -0.3, -0.05), (1.1, 0.3, 1.0)),
-    "StackCube-v1": ((-0.2, -0.3, -0.05), (1.1, 0.3, 1.0)),
-    "PegInsertionSide-v1": ((-0.2, -0.6, -0.05), (1.1, 0.6, 1.0)),
-    "DrawTriangle-v1": ((-0.2, -0.5, -0.05), (1.1, 0.3, 1.0)),
+    name: (preset.crop_min, preset.crop_max) for name, preset in TASK_POINTCLOUD_PRESETS.items()
 }
 
 

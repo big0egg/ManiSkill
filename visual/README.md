@@ -1,9 +1,11 @@
 # Flow DP3 数据观测可视化
 
 所有工具只读输入 HDF5，不修改训练代码、数据或 checkpoint。默认数据为
-`.runtime/flow_dp3/pickcube-100-roi-v4.h5`，可通过 `--dataset` 指定其他文件。
-新默认数据在基座系 crop `min=(-0.2,-0.3,-0.05)`、`max=(1.1,0.3,1.0)` 后重新执行 FPS512，
-保留机械臂、方块和工作区桌面，移除地面；512点包含桌面点。旧文件仍可显式指定。
+`.runtime/flow_dp3/pickcube-100-camera-v5.h5`，可通过 `--dataset` 指定其他文件。
+新默认数据使用256×256、60°相机，世界位置`(0.30,-0.30,0.35)`、注视`(0,0,0.12)`，
+在基座系 crop `min=(0.44,-0.23,-0.03)`、`max=(0.79,0.25,0.52)` 后执行 FPS512，
+优先保留方块与末端，允许裁掉部分机械臂；512点仍包含桌面。旧文件可显式指定，
+v1录像回放恢复旧128×128相机，新v2回放按契约保存的相机参数执行。
 从项目根目录执行下面的命令。
 
 ## 0. 查看帮助与快速使用
@@ -24,7 +26,7 @@ cd /mnt/workspace/ManiSkill
 
 ```bash
 .venv-ppu/bin/python -B visual/pointcloud.py \
-  --dataset .runtime/flow_dp3/pickcube-100-scene-v3.h5 \
+  --dataset .runtime/flow_dp3/pickcube-100-camera-v5.h5 \
   --episode 0 --frame 0 \
   --export-backend matplotlib --export-view both \
   --fps 20 \
@@ -105,7 +107,7 @@ distance_m = features[3] * length_scale
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/pickcube-100-roi-v4.h5` | 指定输入：`--dataset /mnt/workspace/ManiSkill/.runtime/flow_dp3/pickcube-100-roi-v4.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/pickcube-100-camera-v5.h5` | 指定输入：`--dataset /mnt/workspace/ManiSkill/.runtime/flow_dp3/pickcube-100-camera-v5.h5` |
 | `--episode` | 一个非负整数索引，或 HDF5 中已有的完整轨迹名称 | `0` | 索引按名称排序，从0开始；当前可填 `0`～`99`，如 `--episode 54` 或 `--episode episode_00054` |
 | `--frame` | 整数，`0`～当前轨迹的动作数 `T`，含两端 | `0` | GUI 初始帧、PNG/PLY 保存帧、MP4 起始帧；如 `--frame 30`。当前 episode 0 可填 `0`～`74`，其他轨迹长度不同 |
 | `--coordinate-frame` | 只能填 `base` 或 `relative` | `base` | `base`：机器人基座坐标系；`relative`：原点平移到当前 TCP，方向仍为基座轴。例：`--coordinate-frame relative` |
@@ -189,7 +191,7 @@ PNG/MP4 的后端选择不影响原有 Open3D GUI/选点功能或 PLY 导出。
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/pickcube-100-roi-v4.h5` | 指定训练集：`--dataset .runtime/flow_dp3/pickcube-100-roi-v4.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/pickcube-100-camera-v5.h5` | 指定训练集：`--dataset .runtime/flow_dp3/pickcube-100-camera-v5.h5` |
 | `--episodes` | 一个或多个非负整数索引或完整轨迹名称，用空格分隔，不能重复 | 有至少100条时选 `0 2 54 80 99`，否则取前5条或全部不足5条的轨迹 | 如 `--episodes 0 2 54` 或 `--episodes episode_00000 episode_00002`；当前整数索引范围 `0`～`99` |
 | `--all` | 开关，不填值 | 关闭 | 导出训练 HDF5 中全部轨迹：`--all`。与 `--episodes` 互斥 |
 | `--output` | 输出目录路径，不是 `.mp4` 文件路径 | 输入数据所在目录下的 `<数据集文件名去掉.h5>-visualization/` | 如 `--output .runtime/flow_dp3/my-scene-videos`，每条轨迹的 MP4 和报告写入此目录；建议选择新目录 |
@@ -234,7 +236,7 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 默认输出 `.runtime/flow_dp3/<数据集名称>-visualization/`。
 每条输出一个1800×1200 MP4，默认帧率为环境控制频率，包含 `T+1` 观测帧：
 
-- 左侧：回放场景 RGB，以及原128×128点云相机的 RGB（最近邻放大）。
+- 左侧：回放场景 RGB，以及数据契约对应的点云相机 RGB（最近邻放大，标题显示原生分辨率）。
 - 右上：HDF5 保存的全场景点云、末端附近点云，展示基座坐标轴、TCP 与目标。
 - 右下：HDF5 保存的关节位置、关节速度、夹爪位置、TCP到目标距离及动作曲线，游标随帧移动。
 
@@ -265,11 +267,14 @@ RGB 是补录回放画面，点云与曲线直接来自训练 HDF5。不是策�
 双图测试还验证相同点坐标、同步近处过滤、相同投影，以及只在右图显示距离颜色和矢量。
 GUI 点击和 Open3D 离屏渲染需在完成安装后分别验证。
 
-新 ROI v4 数据已完成100条成功回放、7820帧检查，每帧为512点，全部落在新 crop 内；
-状态和动作与 scene-v3 数据完全一致。第0条第0帧按实体 ID 统计为机械臂121点、方块4点、
-桌面387点、地面0点。新双图位于 `.runtime/flow_dp3/pickcube-100-roi-v4-frame0.png`，
-整份数据验证报告位于 `.runtime/flow_dp3/pickcube-100-roi-v4-validation.json`。
-五个任务的点云接口另通过2402帧对照，数据契约5项和可视化10项测试均通过。
+camera-v5按新相机和操作区重新真实回放转换，数据契约记录相机与crop，最终输入仍为512点。
+已完成100条成功轨迹、7820帧完整检查，并验证75帧真实视频回放与保存的观测逐帧一致。
+第0条第0帧为机械臂100点、方块12点、桌面400点、地面0点，合计512；
+[RGB与实体点云对照](../testpointcloud/runs/integration-camera-v5-semantics.png)可逐点核对。
+验证结果与正式接入说明见 [INTEGRATION.md](../testpointcloud/INTEGRATION.md)。
+更早ROI v4的121个机械臂点、4个方块点和387个桌面点属于旧相机/旧crop结果，不能当作
+camera-v5的计数。五任务的相机筛选、实体计数和采样丢失分析见
+[实验报告](../testpointcloud/MULTI_TASK_REPORT.md)。
 
 以下视频样例使用旧 scene-v3 数据。该数据于2026-10-06完成10项测试，以及100条训练轨迹的结构/有限值/距离通道检查。
 已生成 episode 0、2、54、80、99 的5条同步视频，共408帧，均通过逐帧回放比较和 MP4 解码检查，

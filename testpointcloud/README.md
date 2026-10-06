@@ -3,8 +3,8 @@
 另外四个任务的推荐参数、点数分布和限制见
 [MULTI_TASK_REPORT.md](MULTI_TASK_REPORT.md)。以下部分是 PickCube 的较大样本实验。
 
-所有实验程序、缓存、录制数据、统计和图片均在此目录内。正式任务相机、FlowDP3
-观测适配器、根目录 README.md 和 introduce.md 未因本次实验修改。
+所有实验程序、缓存、录制数据、统计和图片均在此目录内。本报告记录相机筛选阶段；
+用户确认后已将推荐参数正式接入任务与FlowDP3流程，接入及验证见 [INTEGRATION.md](INTEGRATION.md)。
 
 本实验优先评价目标物体，其次腕部/夹爪。固定 crop 为机器人基座坐标系
 `min=(0.44,-0.23,-0.03)`、`max=(0.79,0.25,0.52)` 米，在减 TCP 前应用。
@@ -84,7 +84,7 @@ Panda 基座世界位置约为 `(-0.615,0,0)`，这两个坐标系不能混用�
 | `runs/replay01` / `replay02` | 较高备选和最终推荐配置的真实动作回放 |
 | `runs/frustum01.json` | 29配置×9328帧的几何视场覆盖预检 |
 | `runs/final-report/analysis.json` | 完整统计与推荐理由 |
-| `runs/final-report/camera-preset.json` | 可审阅的sensor_configs和点云参数，尚未切换正式默认值 |
+| `runs/final-report/camera-preset.json` | 筛选阶段导出的sensor_configs和点云参数；正式接入见INTEGRATION.md |
 | `runs/final-report/comparison-*.png` | 各阶段同场景RGB、FPS512分布和物块原始/采样点对照 |
 | `runs/integrity01.json` / `integrity02.json` | 共4558帧、9116份FPS数组的完整性检查 |
 
@@ -107,5 +107,5 @@ HDF5按 `traj_<源ID>/frame_<帧号>` 保存原生RGB、segmentation、裁剪后
   --output testpointcloud/runs/my-camera-replay
 ```
 
-后续正式接入时，需要把相机参数及新crop写入数据/checkpoint的观测契约，并统一
-采集、评估和可视化入口，再重新转换训练数据。此实验没有改这些正式入口。
+筛选阶段没有改正式入口。后续用户授权的接入已将相机和crop写入新v2契约，并统一
+采集、评估和可视化入口；真实回放转换的新训练数据及检查见INTEGRATION.md。

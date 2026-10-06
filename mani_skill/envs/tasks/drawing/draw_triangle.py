@@ -9,6 +9,7 @@ import mani_skill.envs.utils.randomization as randomization
 from mani_skill.agents.robots.panda.panda_stick import PandaStick
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils.task_pointcloud import make_pointcloud_camera_config
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.geometry.rotation_conversions import quaternion_to_matrix
 from mani_skill.utils.registration import register_env
@@ -73,18 +74,7 @@ class DrawTriangleEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at(eye=[0.3, 0, 0.8], target=[0, 0, 0.1])
-        return [
-            CameraConfig(
-                "base_camera",
-                pose=pose,
-                width=320,
-                height=240,
-                fov=1.2,
-                near=0.01,
-                far=100,
-            )
-        ]
+        return [make_pointcloud_camera_config("DrawTriangle-v1")]
 
     @property
     def _default_human_render_camera_configs(self):

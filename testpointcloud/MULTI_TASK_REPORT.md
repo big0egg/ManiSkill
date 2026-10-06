@@ -1,7 +1,7 @@
 # 五个任务的相机与操作区实验
 
-本次新增文件全部位于 `testpointcloud`。正式任务相机、FlowDP3 适配器、项目根目录
-README.md 和 introduce.md 没有修改。本文给出可审阅的实验参数，尚未切换采集或训练入口。
+本文记录全部输出位于 `testpointcloud` 的相机筛选阶段。用户确认后已正式接入这些参数，
+并更新FlowDP3、可视化入口和相关文档；接入及验证见 [INTEGRATION.md](INTEGRATION.md)。
 PickCube 的较大样本结果和真实专家动作回放详见 [README.md](README.md)。
 
 ## 相机建议

@@ -9,6 +9,7 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.scene import ManiSkillScene
 from mani_skill.envs.utils import randomization
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils.task_pointcloud import make_pointcloud_camera_config
 from mani_skill.utils import common, sapien_utils
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
@@ -95,8 +96,7 @@ class PegInsertionSideEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at([0, -0.3, 0.2], [0, 0, 0.1])
-        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
+        return [make_pointcloud_camera_config("PegInsertionSide-v1")]
 
     @property
     def _default_human_render_camera_configs(self):

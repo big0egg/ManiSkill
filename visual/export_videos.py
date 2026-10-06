@@ -142,14 +142,14 @@ def compose(scene, sensor, dashboard, lines):
     from PIL import Image, ImageDraw, ImageFont
     result = Image.new('RGB', (1800, 1200), '#101725')
     result.paste(Image.fromarray(scene).resize((600, 600)), (0, 0))
-    # 最近邻放大，保留原相机128x128像素的实际细节。
+    # 最近邻放大，保留所录制相机的原生像素细节。
     result.paste(Image.fromarray(sensor).resize((480, 480), Image.Resampling.NEAREST), (60, 630))
     result.paste(Image.fromarray(dashboard), (600, 0))
     draw = ImageDraw.Draw(result)
     font = ImageFont.truetype(str(ROOT / 'mani_skill/utils/visualization/UbuntuSansMono-Regular.ttf'), 17)
     draw.rectangle((0, 0, 600, 105), fill='#101725')
     draw.multiline_text((12, 10), '\n'.join(lines), fill='white', font=font)
-    draw.text((12, 608), 'Replayed base_camera RGB (original 128x128)', fill='white', font=font)
+    draw.text((12, 608), f'Replayed base_camera RGB (native {sensor.shape[1]}x{sensor.shape[0]})', fill='white', font=font)
     return np.asarray(result)
 
 
@@ -157,7 +157,7 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
     import imageio.v2 as imageio
     import torch
     from mani_skill.trajectory import utils as trajectory_utils
-    from obs_adapter import ObservationConfig, adapt_observation
+    from obs_adapter import config_from_contract, adapt_observation
     source_id = ep.metadata['source_episode']
     meta = raw_episodes[source_id]
     initial = trajectory_utils.dict_to_list_of_dicts(raw[f'traj_{source_id}/env_states'])[0]
@@ -166,7 +166,7 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
         reset['seed'] = reset['seed'][0]
     env.reset(**reset)
     env.unwrapped.set_state_dict(initial)
-    config = ObservationConfig(**ep.contract['pointcloud'])
+    config = config_from_contract(ep.contract)
     dashboard = Dashboard(ep, args.near_radius)
     state_errors = {key: 0. for key in ep.contract['state_fields']}
     point_error = 0.
@@ -253,14 +253,14 @@ def run(args):
     raw_meta = json.loads(source_json.read_text())
     raw_episodes = {e['episode_id']: e for e in raw_meta['episodes']}
     sys.path.insert(0, str(ROOT / 'examples/baselines/flow_dp3'))
-    from obs_adapter import ObservationConfig, make_env
+    from obs_adapter import config_from_contract, make_env
     contract = load_episode(args.dataset, selected[0]).contract
-    if ObservationConfig(**contract['pointcloud']).contract() != contract:
-        raise ValueError('当前仿真/观测适配器与数据集契约不同，拒绝错误回放')
+    config_from_contract(contract)
     os.environ.setdefault('VK_ICD_FILENAMES', '/usr/share/vulkan/icd.d/lvp_icd.json')
     os.environ.setdefault('MPLCONFIGDIR', str(ROOT / '.runtime/matplotlib'))
     # CPU 仿真及软件 Vulkan；策略计算和 W&B 不参与录像。
-    env = make_env(max_episode_steps=max(200, report['steps_min_median_max'][2] + 1), render_mode='rgb_array')
+    env = make_env(max_episode_steps=max(200, report['steps_min_median_max'][2] + 1), render_mode='rgb_array',
+                   contract=contract)
     report.update({'raw_source': str(source.resolve()), 'video_kind': 'training_action_replay',
                    'pointcloud_panels': 'saved HDF5 observations',
                    'tolerances': {'state': args.state_tolerance, 'qvel': args.velocity_tolerance,

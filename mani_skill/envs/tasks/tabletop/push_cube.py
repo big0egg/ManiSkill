@@ -26,6 +26,7 @@ from transforms3d.euler import euler2quat
 from mani_skill.agents.robots import Fetch, Panda
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils.task_pointcloud import make_pointcloud_camera_config
 from mani_skill.utils import common, sapien_utils
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
@@ -75,8 +76,8 @@ class PushCubeEnv(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
-        # registers one 128x128 camera looking at the robot, cube, and target
-        # a smaller sized camera will be lower quality, but render faster
+        if self.robot_uids == "panda":
+            return [make_pointcloud_camera_config("PushCube-v1")]
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
         return [
             CameraConfig(

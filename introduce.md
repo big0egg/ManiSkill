@@ -27,9 +27,9 @@ export MANISKILL_VULKAN_ICD=/usr/share/vulkan/icd.d/lvp_icd.json
 export VK_ICD_FILENAMES="$MANISKILL_VULKAN_ICD"
 
 # 数据文件位置和训练目录分别设置。
-export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-roi-v4.h5"
+export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-camera-v5.h5"
 # 新 crop 数据从头训练，使用独立目录。
-export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-roi-v4"
+export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-camera-v5"
 mkdir -p "$FLOW_RUN_ROOT" "$MPLCONFIGDIR" "$MS_ASSET_DIR"
 test -f "$VK_ICD_FILENAMES"
 ```
@@ -45,19 +45,19 @@ test -f "$VK_ICD_FILENAMES"
 | `MS_ASSET_DIR` / `MPLCONFIGDIR` | 可写目录路径 | 资产与 Matplotlib 缓存位置 |
 | `OMP_NUM_THREADS` / `MKL_NUM_THREADS` / `OPENBLAS_NUM_THREADS` | 正整数，本环境沿用 `1` | CPU 数值库线程数 |
 | `FLOW_DATA` | 已转换或将生成的训练 `.h5` 文件路径 | 数据采集输出和训练输入 |
-| `FLOW_RUN_ROOT` | 可写目录路径，如 `…/pickcube-roi-v4` | 本次实验输出根目录；新训练换目录，恢复训练用原目录 |
+| `FLOW_RUN_ROOT` | 可写目录路径，如 `…/pickcube-camera-v5` | 本次实验输出根目录；新训练换目录，恢复训练用原目录 |
 
 ## 2. 数据录制与转换
 
 ### 2.1 生成100条成功示范
 
-工作区已经有 `pickcube-100-roi-v4.h5` 时，下面的命令直接使用现有文件。缺少训练数据时，优先回放已有的 scene-v3 原始轨迹；没有原始轨迹时生成120条成功轨迹，再筛选100条最终成功的训练示范。当前默认 crop 保留机械臂、方块和工作区桌面并移除背景地面；旧训练数据不会因修改程序自动更新。
+工作区已经有 `pickcube-100-camera-v5.h5` 时，下面的命令直接使用现有文件。缺少训练数据时，优先回放已有的 scene-v3 原始轨迹；没有原始轨迹时生成120条成功轨迹，再筛选100条最终成功的训练示范。当前默认相机为256×256、60°，世界位置`(0.30,-0.30,0.35)`，注视`(0,0,0.12)`；crop优先保留方块和末端，允许裁去部分机械臂并移除地面。旧训练数据不会因修改程序自动更新。
 
 ```bash
 if [ ! -f "$FLOW_DATA" ]; then
-    if [ -f "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5" ]; then
+    if [ -f "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v4.raw.h5" ]; then
         python -B examples/baselines/flow_dp3/prepare_demos.py \
-            --source "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5" \
+            --source "$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v4.raw.h5" \
             --count 100 --max-steps 200 \
             --num-points 512 --length-scale 1.0 --output "$FLOW_DATA"
     else
@@ -73,13 +73,13 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 录制使用仓库内置运动规划器。原始关节控制轨迹成功，不保证转换为末端控制后仍成功，因此生成数量预留余量，尝试次数也高于生成目标。需要重新采集时先将 `FLOW_DATA` 改成新文件名。
 
-以复用 scene-v3 原始轨迹生成 `pickcube-100-roi-v4.h5` 为例：
+以复用 scene-v3 原始轨迹生成 `pickcube-100-camera-v5.h5` 为例：
 
 | 文件 | 内容 |
 | --- | --- |
 | `pickcube-100-scene-v3.raw.h5` / `.raw.json` | 原始动作、环境状态和轨迹元信息 |
-| `pickcube-100-roi-v4.h5` | 新 crop 训练数据：每条轨迹有 `T+1` 帧点云 / 28维状态和 `T` 个4维动作 |
-| `pickcube-100-roi-v4.json` | 数据契约、源文件路径与指纹、成功数量与拒绝回放记录 |
+| `pickcube-100-camera-v5.h5` | 新相机与crop训练数据：每条轨迹有 `T+1` 帧点云 / 28维状态和 `T` 个4维动作 |
+| `pickcube-100-camera-v5.json` | v2契约（含完整相机参数）、源文件路径与指纹、成功数量与拒绝回放记录 |
 
 `--generate` 模式在输出文件旁生成同名 `.raw.h5` / `.raw.json`；`--source` 模式复用已有原始文件，实际路径记录于 manifest，可视化回放按此路径查找。
 
@@ -111,12 +111,12 @@ export FLOW_DATA="$FLOW_RUN_ROOT/demos-converted.h5"
 | `--max-steps` | `200` | 整数且 ≥16，如 `200`、`300` | 环境单局步数上限及转换回放的长度过滤上限 |
 | `--num-points` | `512` | 128～4096的整数，如 `512`、`1024` | 当前预采样设置下，每帧 FPS 保留的点数 |
 | `--length-scale` | `1.0` | 有限正数，如 `1.0` | 相对 xyz 和距离统一除以尺度 L，须与 policy 配置相同 |
-| `--crop-min` | `-0.2 -0.3 -0.05` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪下界，单位米；逐轴小于 crop-max |
-| `--crop-max` | `1.1 0.3 1.0` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪上界，单位米；裁剪后须有足够点数 |
+| `--crop-min` | `0.44 -0.23 -0.03` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪下界，单位米；逐轴小于 crop-max |
+| `--crop-max` | `0.79 0.25 0.52` | 空格分隔的3个有限浮点数 | 基座系 xyz 裁剪上界，单位米；裁剪后须有足够点数 |
 
-CLI 中的裁剪参数写成 `--crop-min -0.2 -0.3 -0.05`，不要写成 YAML 列表格式。范围在世界系转基座系后、减 TCP 前应用；Panda 基座位于世界 x=-0.615米。默认范围排除背景地面，保留机械臂、方块和工作区桌面。后续最多4096点预采样与512点 FPS 仍会减少点数，512是整个场景的总点数，不是机械臂与方块各512点。五个任务的预设范围及支持边界见 README 第6节。
+CLI 中的裁剪参数写成 `--crop-min 0.44 -0.23 -0.03`，不要写成 YAML 列表格式。范围在世界系转基座系后、减 TCP 前应用；Panda 基座位于世界 x=-0.615米。默认范围优先目标和末端，并不保留整臂。后续最多4096点预采样与512点 FPS 仍会减少点数，512是整个场景的总点数，不是机械臂与方块各512点。五个任务的相机、操作区及支持边界见 README 第6节。
 
-修改点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配的模型。评估从 checkpoint 读取采集时的 crop；旧模型仍使用旧范围。第3.2节恢复旧实验时必须沿用旧数据。
+修改相机、点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配的模型。新v2契约保存完整相机参数；评估及视频回放从checkpoint/数据读取相机和crop。旧v1模型仍显式使用旧128×128相机和旧范围。第3.2节恢复旧实验时必须沿用旧数据。
 
 生成或转换数量不足会报错并保留已有结果；检查 `.json` 的 `saved` / `rejected`，用新输出名补充采集。数据录制本身不保存 MP4，策略视频在第4节生成。
 

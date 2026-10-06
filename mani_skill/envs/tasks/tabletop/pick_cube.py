@@ -9,6 +9,7 @@ from mani_skill.agents.robots import SO100, Fetch, Panda, WidowXAI, XArm6Robotiq
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.tasks.tabletop.pick_cube_cfgs import PICK_CUBE_CONFIGS
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils.task_pointcloud import get_task_pointcloud_preset, make_pointcloud_camera_config
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
@@ -59,12 +60,19 @@ class PickCubeEnv(BaseEnv):
         self.max_goal_height = cfg["max_goal_height"]
         self.sensor_cam_eye_pos = cfg["sensor_cam_eye_pos"]
         self.sensor_cam_target_pos = cfg["sensor_cam_target_pos"]
+        if robot_uids == "panda":
+            preset = get_task_pointcloud_preset("PickCube-v1")
+            self.sensor_cam_eye_pos = preset.eye
+            self.sensor_cam_target_pos = preset.target
         self.human_cam_eye_pos = cfg["human_cam_eye_pos"]
         self.human_cam_target_pos = cfg["human_cam_target_pos"]
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
     def _default_sensor_configs(self):
+        if self.robot_uids == "panda":
+            return [make_pointcloud_camera_config("PickCube-v1", eye=self.sensor_cam_eye_pos,
+                                                  target=self.sensor_cam_target_pos)]
         pose = sapien_utils.look_at(
             eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
         )

@@ -10,8 +10,8 @@ import time
 import torch
 
 from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
-from obs_adapter import ObservationConfig, adapt_observation, make_env
-from runtime_utils import canonical, load_policy, select_device, sha256
+from obs_adapter import config_from_contract, adapt_observation, make_env
+from runtime_utils import load_policy, select_device, sha256
 
 
 def evaluate(args):
@@ -36,12 +36,11 @@ def evaluate(args):
     torch.manual_seed(args.policy_seed)
     policy, checkpoint = load_policy(args.checkpoint, device, use_ema=not args.raw_weights)
     contract = checkpoint["contract"]
-    config = ObservationConfig(**contract["pointcloud"])
-    if canonical(config.contract()) != canonical(contract):
-        raise ValueError("checkpoint 观测/环境契约与当前适配器不同")
+    config = config_from_contract(contract)
     if policy.config.length_scale != config.length_scale:
         raise ValueError("checkpoint 中数据与策略长度尺度不一致")
-    env = make_env(max_episode_steps=args.max_steps, render_mode="rgb_array" if args.save_video else None)
+    env = make_env(max_episode_steps=args.max_steps, render_mode="rgb_array" if args.save_video else None,
+                   contract=contract)
     video_fps = args.video_fps or env.unwrapped.control_freq
     if args.save_video:
         from mani_skill.utils.wrappers.record import RecordEpisode
