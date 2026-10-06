@@ -10,12 +10,13 @@ import time
 import torch
 
 from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
-from obs_adapter import config_from_contract, adapt_observation, make_env
+from obs_adapter import config_from_contract, adapt_observation, make_env, validate_env
+from task_registry import TASKS, get_task
 from runtime_utils import load_policy, select_device, sha256
 
 
 def evaluate(args):
-    if args.episodes < 1 or args.max_steps < 1:
+    if args.episodes < 1 or (args.max_steps is not None and args.max_steps < 1):
         raise ValueError("episodes 与 max_steps 必须为正数")
     if args.output.exists():
         raise FileExistsError(f"报告已存在：{args.output}；请选择新路径")
@@ -37,10 +38,15 @@ def evaluate(args):
     policy, checkpoint = load_policy(args.checkpoint, device, use_ema=not args.raw_weights)
     contract = checkpoint["contract"]
     config = config_from_contract(contract)
+    if args.env_id is not None and args.env_id != contract["env_id"]:
+        raise ValueError("指定任务与 checkpoint 不匹配")
+    args.max_steps = args.max_steps or get_task(contract["env_id"]).max_steps
+    print(f'实际任务={contract["env_id"]} | robot={contract["robot_uids"]} | action_dim={contract["action_dim"]}', flush=True)
     if policy.config.length_scale != config.length_scale:
         raise ValueError("checkpoint 中数据与策略长度尺度不一致")
     env = make_env(max_episode_steps=args.max_steps, render_mode="rgb_array" if args.save_video else None,
                    contract=contract)
+    validate_env(env, contract)
     video_fps = args.video_fps or env.unwrapped.control_freq
     if args.save_video:
         from mani_skill.utils.wrappers.record import RecordEpisode
@@ -63,7 +69,7 @@ def evaluate(args):
             obs, _ = env.reset(seed=seed)
             reset_seconds = time.monotonic() - reset_start
             preprocess_start = time.monotonic()
-            adapted, _ = adapt_observation(obs, env.unwrapped.agent, config)
+            adapted, _ = adapt_observation(obs, env.unwrapped.agent, config, contract=contract)
             preprocess_seconds = time.monotonic() - preprocess_start
             history = deque([adapted] * policy.config.n_obs_steps, maxlen=policy.config.n_obs_steps)
             pending = deque()
@@ -96,7 +102,7 @@ def evaluate(args):
                 if bool(torch.as_tensor(truncated).item()):
                     break
                 preprocess_start = time.monotonic()
-                adapted, _ = adapt_observation(obs, env.unwrapped.agent, config)
+                adapted, _ = adapt_observation(obs, env.unwrapped.agent, config, contract=contract)
                 preprocess_seconds += time.monotonic() - preprocess_start
                 history.append(adapted)
             result = {"seed": seed, "steps": step + 1, "success_once": success_once,
@@ -148,7 +154,8 @@ def main():
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--start-seed", type=int, default=1000, help="与训练示范 seed 分离")
     parser.add_argument("--policy-seed", type=int, default=42)
-    parser.add_argument("--max-steps", type=int, default=200)
+    parser.add_argument("--env-id", choices=list(TASKS), help="可选任务校验；实际环境从 checkpoint 读取，不允许跨任务强制覆盖")
+    parser.add_argument("--max-steps", type=int, help="默认按任务：Pick/Push200、Stack400、Peg500、Draw300；Draw不得超过300")
     parser.add_argument("--raw-weights", action="store_true", help="默认使用 EMA")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--save-video", action="store_true", help="保存每局 MP4，默认不录制")

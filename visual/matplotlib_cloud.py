@@ -57,7 +57,7 @@ class MatplotlibCloud:
             colorbar.ax.tick_params(colors='white', labelsize=9)
         self.title = self.figure.text(.04, .96, '', color='white', fontsize=14, weight='bold')
         self.subtitle = self.figure.text(.04, .925, '', color='#d4deeb', fontsize=10)
-        self.figure.text(.04, .045, 'BASE: white +   TCP: cyan   GOAL: green star; base axes: X red / Y green / Z blue\n'
+        self.figure.text(.04, .045, 'BASE: white +   TCP: cyan   GOAL (when available): green star; base axes: X red / Y green / Z blue\n'
                          'p_base = relative_xyz * length_scale + tcp_base; distance_m = features[3] * length_scale',
                          color='#d4deeb', fontsize=10)
         self.artists = []
@@ -93,6 +93,8 @@ class MatplotlibCloud:
             self.point_artists[kind] = cloud
             self.artists.append(cloud)
             for position, label, color, marker in [(base, 'BASE', 'white', '+'), (tcp, 'TCP', 'cyan', 'o'), (goal, 'GOAL', '#55ff55', '*')]:
+                if position is None:
+                    continue
                 self.artists.append(ax.scatter(*position, c=color, marker=marker, s=55))
                 self.artists.append(ax.text(*(position + [0, 0, .04]), label, color=color, fontsize=9))
             for axis, color in zip(np.eye(3) * .25, ['#ff5555', '#55ee55', '#5599ff']):
@@ -106,7 +108,7 @@ class MatplotlibCloud:
                 self.artists.append(ax.quiver(*origins.T, *vectors.T, color=rgba, normalize=False,
                                              length=1, arrow_length_ratio=.035, linewidth=.7))
         suffix = '' if args.near_radius is None else f' | within {args.near_radius:g} m of TCP'
-        self.title.set_text(f'{ep.name} | frame {frame}/{len(ep.actions)} | {args.coordinate_frame} frame')
+        self.title.set_text(f'{ep.contract.get("env_id", "")} | {ep.name} | frame {frame}/{len(ep.actions)} | {args.coordinate_frame} frame')
         self.subtitle.set_text(f'Points: {len(indices)}/{len(xyz)} | vectors: {count} | distance range: 0 to {self.limit:.3f} m{suffix}')
         self.canvas.draw()
         return np.asarray(self.canvas.buffer_rgba())[..., :3].copy()

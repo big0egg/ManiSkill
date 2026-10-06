@@ -418,3 +418,162 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 DP state 使用的真值信息与视觉策略不同；点云 FM 与 RGB DP 也有模态差异。对比表应显式列出观测，避免把不同输入条件归结为生成算法的优劣。
 
 需要新增多任务适配、闭环评估集成、checkpoint 节点保留或推理参数覆盖时，应先取得程序修改同意。本文中的推荐值尚未写入任何程序或配置。
+
+## 10. 整个项目的任务、本体、观测与维度
+
+本节核对日期：**2026-10-07**，以当前本地源码和实际环境接口为准。第 1～9 节保留此前的实验参考内容；本节的相机与点云尺寸反映后来已落地的配置。下面区分三个范围：ManiSkill 当前注册的 **74 个环境 ID**、DP 基准使用的 **6 个任务**、FlowDP3 已完成训练与评估接口适配的 **PickCube-v1 单任务**。任务已注册不代表其资源已经下载，也不代表已经接入 FlowDP3。
+
+### 10.1 ManiSkill 全部已注册任务及默认本体
+
+清单来自导入 `mani_skill.envs` 后的 `REGISTERED_ENVS`，包含任务、场景环境和空环境。等级变体分别计数；场景内的对象组合与随机种子不另计环境 ID。表中的本体是环境默认值，部分任务可以通过 `robot_uids` 切换本体。
+
+| 类别 / 任务内容 | 环境 ID | 默认本体 |
+| --- | --- | --- |
+| 桌面：拾取方块 | `PickCube-v1` | `panda` |
+| 桌面：SO100 拾取方块 | `PickCubeSO100-v1` | `so100` |
+| 桌面：WidowXAI 拾取方块 | `PickCubeWidowXAI-v1` | `widowxai` |
+| 桌面：推方块 | `PushCube-v1` | `panda` |
+| 桌面：叠方块、搭金字塔 | `StackCube-v1`、`StackPyramid-v1` | `panda_wristcam` |
+| 桌面：侧向插销 | `PegInsertionSide-v1` | `panda_wristcam` |
+| 桌面：杂乱物体拾取 | `PickClutterYCB-v1` | `panda` |
+| 桌面：单个 YCB 物体拾取 | `PickSingleYCB-v1` | `panda_wristcam` |
+| 桌面：竖起销杆 | `LiftPegUpright-v1` | `panda` |
+| 桌面：放置球体、戳方块 | `PlaceSphere-v1`、`PokeCube-v1` | `panda` |
+| 桌面：拉方块、使用工具拉方块 | `PullCube-v1`、`PullCubeTool-v1` | `panda` |
+| 桌面：滚动球体 | `RollBall-v1` | `panda` |
+| 桌面：推 T 形物体 | `PushT-v1` | `panda_stick` |
+| 桌面：装配零件 | `AssemblingKits-v1` | `panda_wristcam` |
+| 桌面：FMB 装配 | `FMBAssembly1Easy-v1` | `panda` |
+| 桌面：插充电器、转水龙头 | `PlugCharger-v1`、`TurnFaucet-v1` | `panda_wristcam` |
+| 双臂：协作拾取、叠方块 | `TwoRobotPickCube-v1`、`TwoRobotStackCube-v1` | 两台 `panda_wristcam` |
+| 绘画：三角形、SVG、自由绘制 | `DrawTriangle-v1`、`DrawSVG-v1`、`TableTopFreeDraw-v1` | `panda_stick` |
+| 灵巧操作：三指转方块，等级 0～4 | `TriFingerRotateCubeLevel0-v1`、`TriFingerRotateCubeLevel1-v1`、`TriFingerRotateCubeLevel2-v1`、`TriFingerRotateCubeLevel3-v1`、`TriFingerRotateCubeLevel4-v1` | `trifingerpro` |
+| 灵巧操作：转阀门，等级 0～4 | `RotateValveLevel0-v1`、`RotateValveLevel1-v1`、`RotateValveLevel2-v1`、`RotateValveLevel3-v1`、`RotateValveLevel4-v1` | `dclaw` |
+| 灵巧操作：手内转物体，等级 0～3 | `RotateSingleObjectInHandLevel0-v1`、`RotateSingleObjectInHandLevel1-v1`、`RotateSingleObjectInHandLevel2-v1`、`RotateSingleObjectInHandLevel3-v1` | `allegro_hand_right_touch` |
+| 灵巧操作：插花 | `InsertFlower-v1` | `floating_ability_hand_right` |
+| 控制：倒立摆平衡、摆起 | `MS-CartpoleBalance-v1`、`MS-CartpoleSwingUp-v1` | 项目内 `CartPoleRobot` |
+| 控制：单腿站立、跳跃 | `MS-HopperStand-v1`、`MS-HopperHop-v1` | 项目内 `HopperRobot` |
+| 控制：Ant 行走、跑步 | `MS-AntWalk-v1`、`MS-AntRun-v1` | 项目内 `AntRobot` |
+| 控制：人形站立、行走、跑步 | `MS-HumanoidStand-v1`、`MS-HumanoidWalk-v1`、`MS-HumanoidRun-v1` | `humanoid` |
+| 四足：到达目标、原地旋转 | `AnymalC-Reach-v1`、`AnymalC-Spin-v1` | `anymal_c` |
+| 四足：到达目标 | `UnitreeGo2-Reach-v1` | `unitree_go2_simplified_locomotion` |
+| 人形：H1 站立 | `UnitreeH1Stand-v1` | `unitree_h1_simplified` |
+| 人形：G1 站立 | `UnitreeG1Stand-v1` | `unitree_g1_simplified_legs` |
+| 人形：放苹果、搬箱子 | `UnitreeG1PlaceAppleInBowl-v1`、`UnitreeG1TransportBox-v1` | `unitree_g1_simplified_upper_body_with_head_camera` |
+| 移动操作：开柜门、抽屉 | `OpenCabinetDoor-v1`、`OpenCabinetDrawer-v1` | `fetch` |
+| 移动操作：厨房场景 | `RoboCasaKitchen-v1` | `fetch` |
+| 数字孪生：SO100 抓方块 | `SO100GraspCube-v1` | `so100` |
+| Bridge 数字孪生：放胡萝卜、放勺子、叠彩色方块 | `PutCarrotOnPlateInScene-v1`、`PutSpoonOnTableClothInScene-v1`、`StackGreenCubeOnYellowCubeBakedTexInScene-v1` | `WidowX250SBridgeDatasetFlatTable` |
+| Bridge 数字孪生：放茄子 | `PutEggplantInBasketScene-v1` | `WidowX250SBridgeDatasetSink` |
+| 场景操作：通用、ArchitecTHOR、ReplicaCAD | `SceneManipulation-v1`、`ArchitecTHOR_SceneManipulation-v1`、`ReplicaCAD_SceneManipulation-v1` | `fetch` |
+| 场景操作：整理房屋，训练 / 验证场景 | `ReplicaCADTidyHouseTrain_SceneManipulation-v1`、`ReplicaCADTidyHouseVal_SceneManipulation-v1` | `fetch` |
+| 场景操作：摆餐桌，训练 / 验证场景 | `ReplicaCADSetTableTrain_SceneManipulation-v1`、`ReplicaCADSetTableVal_SceneManipulation-v1` | `fetch` |
+| 场景操作：准备杂货，训练 / 验证场景 | `ReplicaCADPrepareGroceriesTrain_SceneManipulation-v1`、`ReplicaCADPrepareGroceriesVal_SceneManipulation-v1` | `fetch` |
+| 空环境 / 开发场景 | `Empty-v1` | `panda` |
+
+当前关注的任务中，`PickCube-v1` 支持 `panda / fetch / xarm6_robotiq / so100 / widowxai`；`PushCube-v1` 支持 `panda / fetch`；`StackCube-v1` 支持 `panda_wristcam / panda / fetch`；`PegInsertionSide-v1` 当前声明支持 `panda_wristcam`；`PushT-v1` 使用 `panda_stick`。下面的具体维度按所注明的本体计算，换本体后需要重新核对。
+
+### 10.2 当前 6 个 DP 基准任务：本体与动作维度
+
+`panda` 是 7 轴机械臂加平行夹爪，仿真关节状态包含两个手指关节；`panda_wristcam` 在相同本体上增加腕部相机；`panda_stick` 是末端装有固定杆的 7 轴机械臂，没有可控夹爪。
+
+| 任务 | 任务目标 | DP 基准本体 | `qpos` / `qvel` 各自维度 | 回放 / 策略控制模式 | 单步动作维度 |
+| --- | --- | --- | --- | --- | --- |
+| `PickCube-v1` | 抓起红色方块并移动到目标位置 | `panda` | 9 / 9 | `pd_ee_delta_pos` | 4：末端平移 3 + 夹爪 1 |
+| `PushCube-v1` | 将红色方块推到目标区域 | `panda` | 9 / 9 | `pd_ee_delta_pos` | 4：末端平移 3 + 夹爪 1 |
+| `StackCube-v1` | 将红色方块叠到绿色方块上 | `panda`；环境默认是 `panda_wristcam` | 9 / 9 | `pd_ee_delta_pos` | 4：末端平移 3 + 夹爪 1 |
+| `PegInsertionSide-v1` | 将销杆插入侧面的孔 | `panda_wristcam` | 9 / 9 | `pd_ee_delta_pose` | 7：末端平移 3 + 旋转 3 + 夹爪 1 |
+| `PushT-v1` | 将 T 形物体推到目标姿态 | `panda_stick` | 7 / 7 | `pd_ee_delta_pose` | 6：末端平移 3 + 旋转 3 |
+| `DrawTriangle-v1` | 用末端杆沿目标三角形绘制 | `panda_stick` | 7 / 7 | `pd_ee_delta_pos` | 3：末端平移 3 |
+
+这是策略使用的控制接口，和运动规划原始示范的 `pd_joint_pos` 不同。普通 Panda / PandaWristCam 的 `pd_joint_pos` 动作是 **8 维**（机械臂 7 + 联动夹爪 1），PandaStick 是 **7 维**；不能把 `qpos=9` 当成 Panda 的动作维度。使用其他控制模式时，以 `single_action_space.shape` 为准。
+
+### 10.3 环境支持的观测类型与通用形状
+
+以下形状省略并行环境维度；实际张量通常在最前面有 `B=num_envs`。设第 `i` 台相机尺寸为 `H_i×W_i`，所有观测相机像素数之和为 `N=Σ(H_i×W_i)`。
+
+| 观测模式 / 字段 | 内容 | 单环境形状 / 维度 |
+| --- | --- | --- |
+| `none` | 不返回观测内容 | 空字典 |
+| `state_dict` | `agent` 本体状态 + `extra` 任务状态，保留字段 | 各字段维度随本体、控制器和任务变化 |
+| `state` | 将对应的 `state_dict` 展平成向量；可以包含物体真值 | `(D_state,)`，6 个基准的具体数值见 10.4 |
+| `rgb` | 各相机 RGB 图像，以及 `agent / extra / sensor_param` | 每相机 `(H_i,W_i,3)`；RGB 为 `uint8` |
+| `depth` | 相机深度，以及本体与任务字段 | 每相机 `(H_i,W_i,1)`；当前 `default` shader 的转换结果以毫米存储 |
+| `rgb+depth` / `rgbd` | 同时获取 RGB 和深度 | 每相机 RGB 3 通道 + 深度 1 通道 |
+| `segmentation` | Actor / 机器人 Link 的实例 ID | 每相机 `(H_i,W_i,1)` |
+| `position` | 相机坐标中的三维位置纹理 | 每相机 `(H_i,W_i,3)`；转换前后单位需要区分 |
+| `normal` / `albedo` | 表面法向 / 反照率 | 每相机 `(H_i,W_i,3)`，是否可用取决于 shader |
+| `pointcloud.xyzw` | 多相机合并后的世界坐标点云；第 4 列是有效点标志 | `(N,4)`；xyz 单位为米，w 为 0 / 1 |
+| `pointcloud.rgb` | 与点逐一对应的颜色 | `(N,3)` |
+| `pointcloud.segmentation` | 与点逐一对应的 Actor / Link ID | `(N,1)` |
+| `sensor_param` | 相机内外参 | 每相机 `intrinsic_cv: (3,3)`、`extrinsic_cv: (3,4)`、`cam2world_gl: (4,4)` |
+| `sensor_data` | 未应用标准纹理转换的 shader 原始输出 | 纹理名称、通道与类型由 shader 决定，不固定为 RGB-D 格式 |
+
+多数环境继承 `BaseEnv` 的通用观测接口，支持上表的模式以及 `rgb+segmentation`、`state+rgb` 等组合。**例外**：4 个 Bridge 数字孪生环境只声明支持 `rgb+segmentation`；`SO100GraspCube-v1` 声明支持 `none / state / state_dict / rgb+segmentation`。这些环境不能直接按通用点云接口使用。
+
+项目没有对全部 74 个环境规定同一个状态维度。对于使用基础本体观测的单机器人，若关节数为 `J`、控制器状态维度为 `C`、任务额外字段总维度为 `E`，则 `D_state=2J+C+E`。灵巧手、本体自定义观测和双机器人还要加入相应附加字段；例如 TriFinger 额外返回指尖位姿 21 维与速度 9 维，DClaw 额外返回三指指尖位姿 21 维，AllegroTouch 额外返回触觉读数。其他任务未在本节逐一实例化，其状态总维度应按对应配置的 `single_observation_space` 或实际观测核对，不能套用下面六项的数字。
+
+### 10.4 六个基准任务的原生状态与视觉附带状态
+
+以下数值通过 `physx_cpu`、单环境 `reset(seed=0)` 实测，并与各任务的 `_get_obs_extra` 定义核对；控制模式和本体对应 10.2。这些控制模式没有附加的控制器状态。普通位姿 `pose` 是 **7 维：位置 xyz 3 + 四元数 wxyz 4**，位置 / 差向量是 3 维，标志 / 半径是 1 维。
+
+| 任务 | 原生 `state / state_dict` 的任务字段 `extra` | `agent` 维度 | `extra` 维度 | 原生 `state` 总维度 | 纯视觉模式保留的 `extra` | 视觉附带状态总维度 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `PickCube-v1` | `is_grasped(1)`、`tcp_pose(7)`、`goal_pos(3)`、`obj_pose(7)`、`tcp_to_obj_pos(3)`、`obj_to_goal_pos(3)` | 18 | 24 | **42** | `is_grasped(1)`、`tcp_pose(7)`、`goal_pos(3)` | **29** |
+| `PushCube-v1` | `tcp_pose(7)`、`goal_pos(3)`、`obj_pose(7)` | 18 | 17 | **35** | `tcp_pose(7)` | **25** |
+| `StackCube-v1` | `tcp_pose(7)`、`cubeA_pose(7)`、`cubeB_pose(7)`、`tcp_to_cubeA_pos(3)`、`tcp_to_cubeB_pos(3)`、`cubeA_to_cubeB_pos(3)` | 18 | 30 | **48** | `tcp_pose(7)` | **25** |
+| `PegInsertionSide-v1` | `tcp_pose(7)`、`peg_pose(7)`、`peg_half_size(3)`、`box_hole_pose(7)`、`box_hole_radius(1)` | 18 | 25 | **43** | `tcp_pose(7)` | **25** |
+| `PushT-v1` | `tcp_pose(7)`、`goal_pos(3)`、`obj_pose(7)` | 14 | 17 | **31** | `tcp_pose(7)` | **21** |
+| `DrawTriangle-v1` | `tcp_pose(7)`、`goal_pose(7)`、`tcp_to_verts_pos(9)`、`goal_pos(3)`、`vertices(9)` | 14 | 35 | **49** | `tcp_pose(7)` | **21** |
+
+这里的“纯视觉模式”指 `rgb / rgb+depth / pointcloud` 等未请求 `state` 的模式；它们仍保留本体与任务允许的附带字段。视觉附带状态维度是把这些 `agent / extra` 字段拼接后的维度，也是本地 DP 视觉入口默认状态提取器使用的字段集合。比如 PickCube 视觉状态是 29 维，包含 `is_grasped`；FlowDP3 自行去掉它并转换坐标，得到 10.6 中的 28 维。`state+rgb` 则会请求更完整的任务真值，不能按纯视觉维度计算。
+
+DrawTriangle 的两个 9 维字段分别是三角形 **3 个三维顶点**与 TCP 到这些顶点的差向量。绘制痕迹通过图像 / 点云体现，没有作为完整绘制历史向量加入上述 49 维状态。
+
+### 10.5 当前相机、原始点云数量与 crop
+
+以下是五个任务已落地的相机 / crop 预设；PushT 沿用其原有相机。相机位置与朝向不改变 `state` 维度，但会改变图像内容和物体可见点数。`human_render` / `render_camera` 用于展示，其分辨率不能当成策略观测分辨率。
+
+| 任务 / 本体配置 | 观测相机及分辨率 | 单帧原始 `pointcloud.xyzw` 形状，省略 B |
+| --- | --- | --- |
+| PickCube / Panda | `base_camera: 256×256` | `(65536,4)` |
+| PushCube / Panda | `base_camera: 256×256` | `(65536,4)` |
+| StackCube / DP 的 Panda | `base_camera: 256×256` | `(65536,4)` |
+| StackCube / 默认 PandaWristCam | `base_camera: 256×256` + `hand_camera: 128×128` | `(81920,4)` |
+| PegInsertionSide / PandaWristCam | `base_camera: 256×256` + `hand_camera: 128×128` | `(81920,4)` |
+| PushT / PandaStick | `base_camera: 128×128` | `(16384,4)` |
+| DrawTriangle / PandaStick | `base_camera: 256×256` | `(65536,4)` |
+
+这里的 N 是所有像素对应的点槽位数，包含 w=0 的无效点；它不是 crop 后的点数，也不是机械臂或物体的可见点数。`pointcloud.rgb`、`pointcloud.segmentation` 使用相同的 N，最后一维分别为 3 和 1。
+
+| 任务 | base 相机 eye，世界坐标 / m | 相机 target，世界坐标 / m | FOV | crop_min，本体基座坐标 / m | crop_max，本体基座坐标 / m |
+| --- | --- | --- | --- | --- | --- |
+| PickCube | `(0.30,-0.30,0.35)` | `(0,0,0.12)` | 60° | `(0.44,-0.23,-0.03)` | `(0.79,0.25,0.52)` |
+| PushCube | `(0.30,-0.30,0.35)` | `(0.15,0,0.08)` | 75° | `(0.40,-0.23,-0.03)` | `(1.06,0.25,0.52)` |
+| StackCube | `(0.30,0.35,0.28)` | `(0,0,0.07)` | 65° | `(0.36,-0.36,-0.03)` | `(0.87,0.36,0.52)` |
+| PegInsertionSide | `(0.30,-0.35,0.55)` | `(0,0.10,0.12)` | 75° | `(0.34,-0.40,-0.03)` | `(0.90,0.62,0.52)` |
+| DrawTriangle | `(0.25,-0.40,0.50)` | `(-0.10,-0.10,0.04)` | 60° | `(0.28,-0.35,-0.03)` | `(0.80,0.18,0.52)` |
+
+crop 优先覆盖操作物体与末端活动区域，不要求保留机械臂所有 Link；仍可能保留桌面点。确认某类点被采集时，用 `segmentation` 中的 Actor / Link ID 与场景对象、机器人 Link 的 `per_scene_id` 对应，在有效点、crop、预采样和 FPS 四个阶段分别计数。这个标记用于实验统计，没有作为模型的输入通道。
+
+### 10.6 FlowDP3 实际输入、序列与适配边界
+
+当前完整适配仍为 **PickCube + Panda + `pd_ee_delta_pos`**。环境先产生原始点云，再过滤有效点、变换到机器人基座坐标、crop、最多预采样 4096 点，最后 **FPS 下采样到 512 点**。点数不足 512 时适配器报错。512 是机器人、目标物体、桌面等全部保留类别合计的点数，没有固定的类别配额。
+
+| 模型 / 数据字段 | 内容 | 单帧形状，省略 B |
+| --- | --- | --- |
+| `state[0:9]` | Panda 关节位置 | `(9,)` |
+| `state[9:18]` | Panda 关节速度 | `(9,)` |
+| `state[18:25]` | 基座坐标中的 TCP 位姿，xyz + wxyz | `(7,)` |
+| `state[25:28]` | 基座坐标中的目标位置 | `(3,)` |
+| `state` 合计 | 本体、TCP 与任务目标；不包含物体真值、抓取标志或成功标志 | **`(28,)`** |
+| `pointcloud_distance` | 每点 `[dx,dy,dz,‖d‖] / length_scale`，d 是点相对 TCP 的基座坐标差 | **`(512,4)`** |
+| `action` | 末端平移 3 + 夹爪 1 | **`(4,)`** |
+
+`pointcloud_distance` 的第 4 维是到 TCP 的距离，和原始 `xyzw` 的有效标志不同。当前 `length_scale=1.0`，xyz 差与距离保持米制数值；RGB、分割 ID、相机参数和原始有效标志均未拼入这 4 个通道。
+
+当前策略配置 `n_obs_steps=2`、`horizon=16`、`n_action_steps=8`：批大小为 B 时，条件输入是 `state: (B,2,28)` 与 `pointcloud_distance: (B,2,512,4)`，预测动作序列是 `(B,16,4)`，每次执行的动作段是 `(B,8,4)`。FlowDP3 HDF5 中一条有 T 个动作的轨迹保存 `action: (T,4)`，以及 `state: (T+1,28)`、`pointcloud_distance: (T+1,512,4)`，多出的观测是最后一步动作后的状态；原始 ManiSkill 轨迹文件使用的动作字段名则是 `actions`。
+
+五个相机预设任务可复用点云处理接口，**不能据此认为五个任务都已获得可训练的 28 维状态接口**。例如 PushCube 的纯视觉 `extra` 不提供 `goal_pos`，PandaStick 本体是 7 维关节位置 / 速度，PegInsertionSide 的策略动作是 7 维；它们需要各自的任务状态与动作适配。PushT 当前没有上述五任务的 crop 预设。
+
+核对依据：[环境注册](mani_skill/utils/registration.py)、[原生观测接口](mani_skill/envs/sapien_env.py)、[本体观测](mani_skill/agents/base_agent.py)、[观测模式解析](mani_skill/envs/utils/observations/__init__.py)、[点云转换](mani_skill/envs/utils/observations/observations.py)、[DP 视觉状态提取](examples/baselines/diffusion_policy/diffusion_policy/utils.py)、[相机与 crop 配置](mani_skill/utils/task_pointcloud.py)、[FlowDP3 观测适配器](examples/baselines/flow_dp3/obs_adapter.py)、[策略配置](examples/baselines/flow_dp3/configs/pickcube.yaml)。六任务状态维度和观测相机尺寸已在当前代码下实际创建环境并核对；其余任务的清单与默认本体按注册及源码核对。

@@ -1,7 +1,7 @@
 """独立 FlowDP3：末端关系编码器 + 本体 MLP + FiLM U-Net + 原分段一致性目标。
 
 保留用户参考 flow_dp3.py 的全局条件路径、时间尺度、两时刻损失与采样公式。
-只适配 PickCube 的数据契约；不包含参考项目的 RGB/触觉等未启用路径。
+使用任务记录的 state/action 维度；不输入 RGB/触觉。
 """
 from __future__ import annotations
 
@@ -46,8 +46,8 @@ class PolicyConfig:
             raise ValueError("horizon 必须可被 U-Net 下采样倍数整除，观测步数必须有效")
         if not 1 <= self.n_action_steps <= self.horizon - self.n_obs_steps + 1:
             raise ValueError("动作块超出 horizon")
-        if self.state_dim != 28 or self.action_dim != 4:
-            raise ValueError("当前任务契约是28维状态、4维动作")
+        if type(self.state_dim) is not int or type(self.action_dim) is not int or self.state_dim < 1 or self.action_dim < 1:
+            raise ValueError("state_dim/action_dim 必须为正整数")
         if self.kernel_size % 2 != 1 or self.kernel_size < 1 or self.n_groups < 1 or any(
             d <= 0 or d % self.n_groups for d in self.down_dims
         ) or self.down_dims[0] % 8:

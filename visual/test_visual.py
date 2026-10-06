@@ -65,6 +65,7 @@ class FileTests(unittest.TestCase):
             p = Path(directory) / 'bad.h5'
             with h5py.File(p, 'w') as f:
                 f.attrs['contract'] = json.dumps({'frame': 'robot_base',
+                    'state_dim': 28, 'action_dim': 4,
                     'distance_channels': '[relative_xyz_m, norm_m] / length_scale',
                     'pointcloud': {'num_points': 2, 'length_scale': 1}})
                 g = f.create_group('episode_00000')
@@ -143,6 +144,33 @@ class ExportTests(unittest.TestCase):
                     self.assertEqual(list(renderer.axes), [kind])
                 finally:
                     renderer.close()
+
+    def test_task_without_goal_or_gripper_loads_and_renders(self):
+        from matplotlib_cloud import MatplotlibCloud
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'draw.h5'
+            contract = {'env_id': 'DrawTriangle-v1', 'frame': 'robot_base',
+                        'distance_channels': '[relative_xyz_m, norm_m] / length_scale',
+                        'state_dim': 21, 'action_dim': 3,
+                        'pointcloud': {'num_points': 2, 'length_scale': 2},
+                        'state_fields': {'qpos': [0, 7], 'qvel': [7, 14],
+                                         'tcp_base_pose_wxyz': [14, 21]}}
+            with h5py.File(path, 'w') as f:
+                f.attrs['contract'] = json.dumps(contract)
+                g = f.create_group('episode_00000')
+                g.attrs['metadata'] = '{}'
+                g['state'] = np.zeros((3, 21), np.float32)
+                g['action'] = np.zeros((2, 3), np.float32)
+                g['pointcloud_distance'] = self.ep.features
+            ep = load_episode(path)
+            self.assertIsNone(ep.goals)
+            self.assertIsNone(ep.markers(0)[2])
+            renderer = MatplotlibCloud(ep, self.args)
+            try:
+                self.assertEqual(renderer.render(0).shape, (768, 1920, 3))
+                self.assertFalse(any(text.get_text() == 'GOAL' for text in renderer.axes['fps'].texts))
+            finally:
+                renderer.close()
 
     def test_empty_near_filter_and_relative_frame_keep_camera_and_color_range(self):
         from matplotlib_cloud import MatplotlibCloud

@@ -2,7 +2,7 @@
 
 ![仿真环境与机器人示例](figures/teaser.jpg)
 
-本仓库在 [ManiSkill 3](https://maniskill.readthedocs.io/en/latest/) 中独立接入 `flow_dp3`，点云编码器为 `ee_relation_pointnetpp`。当前任务为 `PickCube-v1`，机器人为 Panda，控制模式为 `pd_ee_delta_pos`。
+本仓库在 [ManiSkill 3](https://maniskill.readthedocs.io/en/latest/) 中独立接入 `flow_dp3`，点云编码器为 `ee_relation_pointnetpp`。第一版接入 PickCube、PushCube、StackCube、PegInsertionSide、DrawTriangle，每个任务独立训练，共用距离点云编码器和 Flow DP3 算法。任务选择、录制、训练和推理命令见 [introduce.md](introduce.md)，验证范围和后续计划见 [version.md](version.md)。下方历史示例以 PickCube 为主。
 
 适配阿里云 PAI DSW 镜像 **`2.1.0-pytorch2.9.0-ppu-py312-cu130-ubuntu24.04`**。当前运行方式是 **CPU 物理仿真 + Mesa CPU 软件 Vulkan 渲染 + PPU 策略计算**。
 
@@ -10,6 +10,7 @@
 
 | 你的情况 | 阅读位置 |
 | --- | --- |
+| 选择 PickCube / PushCube / StackCube / PegInsertionSide / DrawTriangle | [introduce.md：第1节任务选择与路径](introduce.md#12-选择任务配置和实验路径) |
 | 已完成安装，准备录制数据、训练或评估 | [introduce.md：实验操作与参数说明](introduce.md) |
 | 在新实例上安装 | 本文第3节 → 第4节 → 第5节 → introduce.md |
 | 重新打开终端 | [第4节：每次启动终端](#4-每次启动终端) |
@@ -231,7 +232,7 @@ FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环�
 | PegInsertionSide-v1 | `(0.34,-0.40,-0.03)` | `(0.90,0.62,0.52)` | `(0.30,-0.35,0.55)` → `(0,0.10,0.12)` | 75° |
 | DrawTriangle-v1 | `(0.28,-0.35,-0.03)` | `(0.80,0.18,0.52)` | `(0.25,-0.40,0.50)` → `(-0.10,-0.10,0.04)` | 60° |
 
-点云接口可通过 `pointcloud_features(obs, agent, env_id="PegInsertionSide-v1")` 选择任务预设；显式传入的 `ObservationConfig` 优先，Draw支持PandaStick的TCP link。实验中可见目标在crop阶段全部保留，但整臂可能被裁去，后续预采样与FPS仍会丢失目标点。例如Pick原始方块中位数476点，FPS后11点；Draw仍有3/700帧目标轮廓被FPS完全丢弃。完整对照及取舍见 [实验报告](testpointcloud/MULTI_TASK_REPORT.md)。当前28维状态、4维动作及正式数据转换仍只支持PickCube。
+点云接口可通过 `pointcloud_features(obs, agent, env_id="PegInsertionSide-v1")` 选择任务预设；显式传入的 `ObservationConfig` 优先，Draw支持PandaStick的TCP link。实验中可见目标在crop阶段全部保留，但整臂可能被裁去，后续预采样与FPS仍会丢失目标点。例如Pick原始方块中位数476点，FPS后11点；Draw仍有3/700帧目标轮廓被FPS完全丢弃。完整对照及取舍见 [实验报告](testpointcloud/MULTI_TASK_REPORT.md)。第一版正式数据转换与推理已接入这五个任务；状态/动作维度和运行命令见 [introduce.md](introduce.md)。
 
 Stack实验录制显式使用`robot_uids="panda"`；任务原有默认机器人`panda_wristcam`保持不变，其`hand_camera`也保留。默认机器人拼接两台相机时，点数分布不能直接套用单相机实验表。
 

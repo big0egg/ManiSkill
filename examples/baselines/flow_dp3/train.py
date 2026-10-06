@@ -14,6 +14,9 @@ from torch.utils.data import default_collate
 from dataset import DemoDataset
 from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
 from policy import FlowDP3, PolicyConfig, update_ema
+from obs_adapter import config_from_contract
+from task_registry import TASKS
+
 from runtime_utils import (DEFAULT_CONFIG, canonical, load_config, save_checkpoint,
                            select_device, sha256, to_device)
 
@@ -43,6 +46,15 @@ def train(args):
                   n_action_steps=policy_config.n_action_steps, val_ratio=settings["val_ratio"], seed=settings["seed"])
     training = DemoDataset(args.data, split="train", **common)
     validation = DemoDataset(args.data, split="val", **common)
+    config_from_contract(training.contract)
+    if args.env_id is not None and args.env_id != training.contract["env_id"]:
+        raise ValueError("指定训练任务与 HDF5 不匹配")
+    for field in ("state_dim", "action_dim"):
+        recorded = training.contract[field]
+        if field in config["policy"] and config["policy"][field] != recorded:
+            raise ValueError(f"配置 {field} 与数据契约不匹配")
+        config["policy"][field] = recorded
+    policy_config = PolicyConfig(**config["policy"])
     if training.contract["pointcloud"]["length_scale"] != policy_config.length_scale:
         raise ValueError("数据与策略 length_scale 不一致，拒绝重复或错误缩放")
     fingerprint = sha256(args.data)
@@ -94,7 +106,8 @@ def train(args):
     if step >= steps:
         raise ValueError(f"目标 steps={steps} 必须大于已训练 step={step}")
     output.mkdir(parents=True, exist_ok=True)
-    (output / "config.yaml").write_text(args.config.read_text())
+    import yaml
+    (output / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
     run = {"algorithm": "flow_dp3", "encoder": "ee_relation_pointnetpp", "device": str(device),
            "torch": str(torch.__version__), "data": str(args.data.resolve()), "data_sha256": fingerprint,
            "contract": training.contract, "train_episodes": training.episodes, "val_episodes": validation.episodes,
@@ -172,6 +185,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--env-id", choices=list(TASKS), help="可选任务校验，实际维度和任务从数据契约读取")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cuda:0")
     parser.add_argument("--steps", type=int, help="目标总更新次数，包含已恢复步数")

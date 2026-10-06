@@ -71,6 +71,8 @@ class CloudView:
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.25, origin=base)
         self._add('base_axes', axes, self.material('defaultUnlit'))
         for name, position, color in [('tcp', tcp, [0.1, 0.95, 0.95, 1]), ('goal', goal, [0.2, 1, 0.2, 1])]:
+            if position is None:
+                continue
             mesh = o3d.geometry.TriangleMesh.create_sphere(radius=0.018)
             mesh.translate(position)
             self._add(name, mesh, self.material('defaultUnlit', color))
@@ -180,7 +182,8 @@ class InteractiveViewer:
         self.labels = []
         self.pick_label = None
         for position, text in [(self.view.base, 'BASE'), (self.view.tcp, 'TCP'), (self.view.goal, 'GOAL')]:
-            self.labels.append(self.widget.add_3d_label(position, text))
+            if position is not None:
+                self.labels.append(self.widget.add_3d_label(position, text))
         self.widget.force_redraw()
 
     def toggle(self):

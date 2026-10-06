@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from obs_adapter import config_from_contract
+
 
 class DemoDataset(Dataset):
     def __init__(self, path, horizon=16, n_obs_steps=2, n_action_steps=8,
@@ -22,6 +24,7 @@ class DemoDataset(Dataset):
         with h5py.File(self.path, "r") as stream:
             self.contract = json.loads(stream.attrs["contract"])
             self.manifest = json.loads(stream.attrs["manifest"])
+            config_from_contract(self.contract)
             episodes = sorted(stream.keys())
             if len(episodes) < 2:
                 raise ValueError("至少需要两条成功示范，才能按 episode 留出验证集")
@@ -31,9 +34,9 @@ class DemoDataset(Dataset):
             for name in self.episodes:
                 group = stream[name]
                 length = len(group["action"])
-                if group["state"].shape != (length + 1, 28) or group["pointcloud_distance"].shape != (
+                if group["state"].shape != (length + 1, self.contract["state_dim"]) or group["pointcloud_distance"].shape != (
                     length + 1, self.contract["pointcloud"]["num_points"], 4
-                ) or group["action"].shape != (length, 4):
+                ) or group["action"].shape != (length, self.contract["action_dim"]):
                     raise ValueError(f"{name} 的 T+1 观测 / T 动作形状异常")
                 if not json.loads(group.attrs["metadata"])["success_end"]:
                     raise ValueError("训练数据中包含失败回放")

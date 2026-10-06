@@ -20,4 +20,7 @@ class PandaStickMotionPlanningSolver(BaseMotionPlanningSolver):
         joint_vel_limits=0.9,
         joint_acc_limits=0.9,
     ):
-        super().__init__(env, debug, vis, base_pose, visualize_target_grasp_pose, print_env_info, joint_vel_limits, joint_acc_limits)
+        # Stick has no grasp visual; BaseMotionPlanningSolver does not accept it.
+        super().__init__(env, debug=debug, vis=vis, base_pose=base_pose,
+                         print_env_info=print_env_info, joint_vel_limits=joint_vel_limits,
+                         joint_acc_limits=joint_acc_limits)

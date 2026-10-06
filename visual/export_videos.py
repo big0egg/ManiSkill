@@ -31,12 +31,13 @@ def inspect_dataset(dataset, near_radius):
                         'recorded_success_end': bool(ep.metadata['success_end']),
                         'max_distance_norm_error': norm_error,
                         'near_points_min': int(near.min()), 'near_points_median': float(np.median(near)),
-                        'terminal_tcp_goal_distance_m': float(np.linalg.norm(ep.tcp[-1] - ep.goals[-1]))})
+                        'terminal_tcp_goal_distance_m': None if ep.goals is None else float(np.linalg.norm(ep.tcp[-1] - ep.goals[-1]))})
     if not names:
         raise ValueError('数据集没有 episode')
     d = np.concatenate(distances)
     near = np.concatenate(near_counts)
     return {'dataset': str(Path(dataset).resolve()), 'dataset_sha256': sha256(dataset),
+            'env_id': ep.contract['env_id'], 'robot_uids': ep.contract['robot_uids'],
             'episode_count': len(names), 'actions': sum(lengths), 'observations': sum(lengths) + len(names),
             'steps_min_median_max': [min(lengths), float(np.median(lengths)), max(lengths)],
             'finite_and_shapes_valid': True, 'near_radius_m': near_radius,
@@ -63,7 +64,9 @@ class Dashboard:
         self.curve_axes = [self.figure.add_subplot(grid[i + 1, j]) for i in range(2) for j in range(2)]
         self.cloud_artists = []
         xyz = episode.features[..., :3].astype(np.float64) * episode.scale + episode.tcp[:, None, :]
-        markers = np.vstack((np.zeros((1, 3)), episode.tcp, episode.goals))
+        markers = np.vstack((np.zeros((1, 3)), episode.tcp))
+        if episode.goals is not None:
+            markers = np.vstack((markers, episode.goals))
         self.global_bounds = np.vstack((xyz.reshape(-1, 3), markers))
         self.near_center = (episode.tcp.min(axis=0) + episode.tcp.max(axis=0)) / 2
         self.limit = float(episode.features[..., 3].max() * episode.scale)
@@ -82,12 +85,13 @@ class Dashboard:
         field = episode.contract['state_fields']
         lo, hi = field['qpos']; qpos = s[:, lo:hi]
         lo, hi = field['qvel']; qvel = s[:, lo:hi]
-        curves = [qpos[:, :7], qvel[:, :7], np.column_stack((qpos[:, 7:9], np.linalg.norm(episode.tcp - episode.goals, axis=1))), episode.actions]
-        titles = ['Joint position (rad)', 'Joint velocity (rad/s)', 'Finger positions / TCP-goal distance (m)', 'Saved action (normalized)']
+        auxiliary = episode.tcp if episode.goals is None else np.column_stack((qpos[:, 7:9], np.linalg.norm(episode.tcp - episode.goals, axis=1)))
+        curves = [qpos[:, :7], qvel[:, :7], auxiliary, episode.actions]
+        titles = ['Joint position (rad)', 'Joint velocity (rad/s)', 'TCP position XYZ (m)' if episode.goals is None else 'Finger positions / TCP-goal distance (m)', 'Saved action (normalized)']
         self.cursors = []
         for ax, data, title in zip(self.curve_axes, curves, titles):
             self.style(ax)
-            labels = ['finger 1', 'finger 2', 'TCP-goal'] if len(data.T) == 3 else [str(i) for i in range(data.shape[1])]
+            labels = (['X', 'Y', 'Z'] if episode.goals is None else ['finger 1', 'finger 2', 'TCP-goal']) if title == titles[2] else [str(i) for i in range(data.shape[1])]
             for i, label in enumerate(labels):
                 ax.plot(t[:len(data)], data[:, i], label=label, linewidth=1)
             ax.set_title(title, color='white', fontsize=10)
@@ -114,7 +118,9 @@ class Dashboard:
         for ax, mask, limit in zip(self.cloud_axes, [np.ones(len(points), bool), distances <= self.radius], [self.limit, self.radius]):
             p = points[mask]
             self.cloud_artists.append(ax.scatter(*p.T, c=distances[mask], cmap='turbo', vmin=0, vmax=limit, s=8, depthshade=False))
-            for position, color, marker in [(ep.tcp[frame], 'cyan', 'o'), (ep.goals[frame], 'lime', '*'), (np.zeros(3), 'white', '+')]:
+            for position, color, marker in [(ep.tcp[frame], 'cyan', 'o'), (None if ep.goals is None else ep.goals[frame], 'lime', '*'), (np.zeros(3), 'white', '+')]:
+                if position is None:
+                    continue
                 self.cloud_artists.append(ax.scatter(*position, c=color, marker=marker, s=35))
             for axis, color in zip(np.eye(3) * .25, ['red', 'lime', 'blue']):
                 line, = ax.plot([0, axis[0]], [0, axis[1]], [0, axis[2]], color=color)
@@ -180,7 +186,7 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
         for frame in range(len(ep.states)):
             if frame:
                 obs, _, _, _, info = env.step(torch.as_tensor(ep.actions[frame - 1]))
-            adapted, _ = adapt_observation(obs, env.unwrapped.agent, config)
+            adapted, _ = adapt_observation(obs, env.unwrapped.agent, config, contract=ep.contract)
             state = adapted['state'][0].numpy()
             features = adapted['pointcloud_distance'][0].numpy()
             current_errors = {key: float(np.max(np.abs(state[lo:hi] - ep.states[frame, lo:hi])))
@@ -259,7 +265,7 @@ def run(args):
     os.environ.setdefault('VK_ICD_FILENAMES', '/usr/share/vulkan/icd.d/lvp_icd.json')
     os.environ.setdefault('MPLCONFIGDIR', str(ROOT / '.runtime/matplotlib'))
     # CPU 仿真及软件 Vulkan；策略计算和 W&B 不参与录像。
-    env = make_env(max_episode_steps=max(200, report['steps_min_median_max'][2] + 1), render_mode='rgb_array',
+    env = make_env(max_episode_steps=max(16, report['steps_min_median_max'][2]), render_mode='rgb_array',
                    contract=contract)
     report.update({'raw_source': str(source.resolve()), 'video_kind': 'training_action_replay',
                    'pointcloud_panels': 'saved HDF5 observations',

@@ -33,6 +33,8 @@ class Episode:
 
     @property
     def goals(self):
+        if 'goal_base_pos' not in self.contract['state_fields']:
+            return None
         lo, hi = self.contract['state_fields']['goal_base_pos']
         return self.states[:, lo:hi]
 
@@ -42,8 +44,8 @@ class Episode:
 
     def markers(self, frame, coordinate_frame='base'):
         tcp = self.tcp[frame].astype(np.float64)
-        goal = self.goals[frame].astype(np.float64)
-        return (np.zeros(3), tcp, goal) if coordinate_frame == 'base' else (-tcp, np.zeros(3), goal - tcp)
+        goal = None if self.goals is None else self.goals[frame].astype(np.float64)
+        return (np.zeros(3), tcp, goal) if coordinate_frame == 'base' else (-tcp, np.zeros(3), None if goal is None else goal - tcp)
 
     def point_info(self, frame, index):
         relative = self.positions(frame, 'relative')[index]
@@ -64,9 +66,13 @@ def view_bounds(episode, coordinate_frame='base', near_radius=None):
     xyz = episode.features[..., :3].astype(np.float64) * episode.scale
     if coordinate_frame == 'base':
         xyz += episode.tcp[:, None, :]
-        markers = np.vstack((np.zeros((1, 3)), episode.tcp, episode.goals))
+        markers = np.vstack((np.zeros((1, 3)), episode.tcp))
+        if episode.goals is not None:
+            markers = np.vstack((markers, episode.goals))
     else:
-        markers = np.vstack((-episode.tcp, np.zeros((1, 3)), episode.goals - episode.tcp))
+        markers = np.vstack((-episode.tcp, np.zeros((1, 3))))
+        if episode.goals is not None:
+            markers = np.vstack((markers, episode.goals - episode.tcp))
     xyz = xyz.reshape(-1, 3)
     if near_radius is not None:
         mask = episode.features[..., 3].ravel() * episode.scale <= near_radius
@@ -93,7 +99,7 @@ def load_episode(path, name='0'):
     if c['frame'] != 'robot_base' or c['distance_channels'] != '[relative_xyz_m, norm_m] / length_scale':
         raise ValueError('不支持的数据坐标/距离契约')
     t = len(episode.actions)
-    if episode.features.shape != (t + 1, c['pointcloud']['num_points'], 4) or episode.states.shape != (t + 1, 28) or episode.actions.shape != (t, 4):
+    if episode.features.shape != (t + 1, c['pointcloud']['num_points'], 4) or episode.states.shape != (t + 1, c['state_dim']) or episode.actions.shape != (t, c['action_dim']):
         raise ValueError(f'{name}: T+1 观测 / T 动作形状异常')
     if not np.isfinite(episode.scale) or episode.scale <= 0:
         raise ValueError('length_scale 必须为有限正数')
