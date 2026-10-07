@@ -28,7 +28,7 @@ class DataContractTests(unittest.TestCase):
                 group = stream.create_group(f"episode_{i:05d}")
                 group.attrs["metadata"] = '{"success_end": true}'
                 group["state"] = np.repeat((100 * i + np.arange(7))[:, None], 28, axis=1).astype(np.float32)
-                group["action"] = np.repeat(np.arange(6)[:, None], 4, axis=1).astype(np.float32)
+                group["action"] = np.repeat(np.arange(6)[:, None], 7, axis=1).astype(np.float32)
                 group["pointcloud_distance"] = np.zeros((7, 128, 4), dtype=np.float32)
 
     def test_episode_split_and_action_alignment(self):
@@ -140,8 +140,7 @@ class DataContractTests(unittest.TestCase):
 
     def test_old_contract_restores_old_camera_instead_of_current_default(self):
         config = ObservationConfig(crop_min=(-.2, -.3, -.05), crop_max=(1.1, .3, 1.))
-        contract = config.contract(sensor_configs={"shader_pack": "default"})
-        contract["version"] = 1
+        contract = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
         self.assertEqual(config_from_contract(contract), config)
         with patch("gymnasium.make") as create:
             make_env(contract=contract)
@@ -162,7 +161,7 @@ class DataContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "单位四元数"):
             config_from_contract(contract)
         contract = ObservationConfig().contract()
-        contract["action_dim"] = 7
+        contract["action_dim"] = 4
         with self.assertRaisesRegex(ValueError, "适配接口"):
             config_from_contract(contract)
 

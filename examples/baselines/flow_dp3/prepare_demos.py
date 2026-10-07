@@ -157,7 +157,8 @@ def prepare(args):
                 identifier = episode["episode_id"]
                 mode = episode["control_mode"]
                 if mode not in ("pd_joint_pos", contract["control_mode"]):
-                    raise ValueError(f"暂不支持从 {mode} 转换动作")
+                    raise ValueError(f"暂不支持从 {mode} 转换为 {contract['control_mode']}；"
+                                     "请使用原始 pd_joint_pos 轨迹，不能为旧平移动作补造旋转标签")
                 traj = raw[f"traj_{identifier}"]
                 if not len(traj["actions"]):
                     rejected.append({"source_episode": identifier, "reason": "empty_actions"})

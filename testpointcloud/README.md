@@ -112,3 +112,5 @@ HDF5按 `traj_<源ID>/frame_<帧号>` 保存原生RGB、segmentation、裁剪后
 
 筛选阶段没有改正式入口。后续用户授权的接入已将相机和crop写入新v2契约，并统一
 采集、评估和可视化入口；真实回放转换的新训练数据及检查见INTEGRATION.md。
+
+PickCube 后续改为7维末端位姿动作（v4 契约），保留原始专家的旋转示范；旧 v1/v2 数据和 checkpoint 仍按4维动作读取。修改、真实转换与验证见 [PICKCUBE_POSE_REPORT.md](PICKCUBE_POSE_REPORT.md)。

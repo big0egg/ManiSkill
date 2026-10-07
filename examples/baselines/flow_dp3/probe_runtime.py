@@ -102,6 +102,7 @@ def check_env(args, visual):
     import mani_skill.envs  # 注册当前独立仓库的任务
     from ee_relation_encoder import EERelationPointNetPPEncoder
     from obs_adapter import ObservationConfig, pointcloud_features  # 仅 worker 导入
+    from task_registry import get_task
     from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
     from mani_skill import PACKAGE_ASSET_DIR
     # Panda 使用仓库内置资产；资产缺失时立即报错，不触发交互下载。
@@ -113,9 +114,10 @@ def check_env(args, visual):
         crop_min=tuple(args.crop_min) if args.crop_min is not None else ObservationConfig.crop_min,
         crop_max=tuple(args.crop_max) if args.crop_max is not None else ObservationConfig.crop_max,
     ) if visual else None)
-    env = gym.make("PickCube-v1", robot_uids="panda", num_envs=1,
+    task = get_task("PickCube-v1")
+    env = gym.make("PickCube-v1", robot_uids=task.robot, num_envs=1,
                    obs_mode="pointcloud" if visual else "state_dict",
-                   control_mode="pd_ee_delta_pos", sim_backend="physx_cpu",
+                   control_mode=task.control_mode, sim_backend="physx_cpu",
                    render_backend=args.render_backend if visual else "none",
                    sensor_configs=pointcloud_sensor_configs(), reconfiguration_freq=1,
                    render_mode=None)
@@ -123,8 +125,8 @@ def check_env(args, visual):
         env.action_space.seed(42)
         obs, _ = env.reset(seed=42)
         action_shape = list(env.action_space.shape)
-        if action_shape[-1] != 4:
-            raise RuntimeError(f"pd_ee_delta_pos 动作应为4维，实际 {action_shape}")
+        if action_shape[-1] != task.action_dim:
+            raise RuntimeError(f"{task.control_mode} 动作应为{task.action_dim}维，实际 {action_shape}")
         frames = []
         model = None
         if visual:
@@ -149,7 +151,7 @@ def check_env(args, visual):
                 obs, _, terminated, truncated, _ = env.step(env.action_space.sample())
                 if torch.as_tensor(terminated).any() or torch.as_tensor(truncated).any():
                     raise RuntimeError("随机探测在指定步数之前结束")
-        result = {"env_id": "PickCube-v1", "sim_backend": "physx_cpu",
+        result = {"env_id": "PickCube-v1", "control_mode": task.control_mode, "sim_backend": "physx_cpu",
                   "render_backend": args.render_backend if visual else "none",
                   "steps": args.steps, "action_shape": action_shape,
                   "task_goal_available": "goal_pos" in obs.get("extra", {})}

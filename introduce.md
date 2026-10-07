@@ -44,7 +44,7 @@ ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 
 
 | `FLOW_TASK` / `--env-id` 可填值 | 机器人 | 策略控制器 | `state_dim` | `action_dim` | 默认最大步数 | 正式配置文件 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `PickCube-v1` | panda | pd_ee_delta_pos | 28 | 4 | 200 | pickcube.yaml |
+| `PickCube-v1` | panda | pd_ee_delta_pose | 28 | 7 | 200 | pickcube.yaml |
 | `PushCube-v1` | panda | pd_ee_delta_pos | 25 | 4 | 200 | pushcube.yaml |
 | `StackCube-v1` | panda | pd_ee_delta_pose | 25 | 7 | 400 | stackcube.yaml |
 | `PegInsertionSide-v1` | panda_wristcam | pd_ee_delta_pose | 25 | 7 | 500 | peginsertion.yaml |
@@ -70,7 +70,7 @@ mkdir -p "$FLOW_RUN_ROOT"
 ```
 
 后续命令沿用这些变量。`FLOW_DATA` 指向真实训练数据，`FLOW_RUN_ROOT` 保存训练、日志和评估输出，数据可以放在实验目录外。
-复用现有 PickCube 数据时，先选 `FLOW_TASK=PickCube-v1` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-camera-v5.h5"`。
+新 PickCube 位姿动作数据已转换为 `.runtime/flow_dp3/PickCube-v1-pose-v4.h5`。复用时先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=pose-v4` 并执行上面的选择块；其数据路径即为该文件。旧4维数据只用于旧实验，不用于新7维配置。
 更换目录或文件名不会改变任务；已有 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
 本文命令显式传 `--env-id "$FLOW_TASK"`，任务不匹配时会报错。
 
@@ -126,6 +126,7 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 未填写 `--max-steps` 时按第1.2节任务表选择上限，不把其他任务也固定为200步。
 录制专家使用 `pd_joint_pos`，目标控制器按任务表选择。转换仅恢复初始场景，之后真实执行动作并重新判断最终成功。
+PickCube 的新 v4 接口保留专家的旋转示范，动作依次为 XYZ 平移增量、三维旋转增量、夹爪；旧 v1/v2 为4维平移动作。转换时必须重新采集实际执行产生的点云，不能把旧4维数据补成7维。
 原始轨迹成功不保证转换后仍成功，120条和2000次尝试只是预留余量，不保证最终获得100条；不足时会报错并保留已有结果。
 新录制使用独立文件名，不覆盖旧数据。
 
@@ -149,7 +150,7 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
     --output "$FLOW_DATA"
 ```
 
-例如复用 PickCube 的旧原始轨迹时，选择 `FLOW_TASK=PickCube-v1`，再设置 `FLOW_SOURCE="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-scene-v3.raw.h5"`。
+例如复用 PickCube 的现有原始轨迹时，选择 `FLOW_TASK=PickCube-v1`，再设置 `FLOW_SOURCE="$MANISKILL_ROOT/.runtime/flow_dp3/PickCube-v1-first-v1.raw.h5"`，输出使用尚未存在的新文件名。
 其他任务须提供各自真实原始数据。`--source` 和 `--generate` 二选一，不应连续写入同一个输出。
 原始 `.h5` 旁必须有同名 `.json`，其中环境和机器人须匹配第1.2节任务表。
 支持从 `pd_joint_pos` 转换，或直接回放该任务对应的策略控制模式；转换完成的训练 `.h5` 直接用于训练。
@@ -188,8 +189,8 @@ Peg 还保留安装在 `camera_link` 上的128×128、90°腕部相机。
 DrawTriangle 的轮廓/画迹辨识与 FPS 漏点需通过录像和训练实验评估。
 
 修改相机、点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配模型。
-PickCube 新数据使用 v2 契约，四个新增任务使用 v3；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。
-历史 PickCube v1/v2 读取路径保留，v1 模型仍显式使用旧128×128相机和旧范围。恢复旧实验必须沿用旧数据。
+PickCube 新数据使用 v4 契约（7维位姿动作），四个其他任务继续使用 v3；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。
+历史 PickCube v1/v2 读取路径保留，继续使用4维平移动作；v1 模型还恢复旧128×128相机和旧范围。恢复旧实验必须沿用旧数据及训练目录保存的配置，旧权重不能直接切换成7维。
 
 生成或转换数量不足会报错并保留已有结果；检查 `.json` 的 `saved` / `rejected`，用新输出名补充采集。
 数据录制本身不保存 MP4；专家数据观测录像按第2.4节导出，训练策略的闭环录像在第4节生成。
@@ -232,7 +233,7 @@ python -B examples/baselines/flow_dp3/train.py \
     --config "$FLOW_CONFIG" \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
-    --batch-size 32 --steps 100000 \
+    --batch-size 32 --steps 30000 \
     --wandb-mode online --wandb-project manskill \
     --wandb-name "${FLOW_RUN_ROOT##*/}-full" --wandb-log-every 10
 ```
@@ -405,7 +406,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | 字段 | 当前值 | 可填值 / 格式 | 意义及联动约束 |
 | --- | --- | --- | --- |
 | `state_dim` | Pick 28；Push/Stack/Peg 25；Draw 21 | 第1.2节任务对应的整数 | 可省略，由训练数据契约绑定；显式填写须与任务匹配 |
-| `action_dim` | Pick/Push 4；Stack/Peg 7；Draw 3 | 第1.2节任务对应的整数 | 可省略，由训练数据契约绑定；显式填写须与任务匹配 |
+| `action_dim` | 新 Pick/Stack/Peg 7；Push 4；Draw 3 | 第1.2节任务对应的整数 | Pick 正式/烟雾配置显式要求7维，拒绝旧4维数据；其他任务可由契约绑定，旧 Pick 恢复使用原配置 |
 | `horizon` | `16` | 正整数，如 `16`、`32` | 动作预测长度；须被 `2^(len(down_dims)-1)` 整除，当前3级结构须为4的倍数 |
 | `n_obs_steps` | `2` | 整数，1～horizon | 观测历史帧数；与网络条件维度相关 |
 | `n_action_steps` | `8` | 整数，1～`horizon-n_obs_steps+1`；当前1～15 | 每次执行的动作数，执行从预测索引 n_obs_steps-1 开始 |

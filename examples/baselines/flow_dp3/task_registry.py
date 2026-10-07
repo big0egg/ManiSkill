@@ -1,5 +1,5 @@
 """First-batch task interfaces; presets alone do not imply tested support."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
 
@@ -27,7 +27,7 @@ class TaskSpec:
 
 
 TASKS = {
-    "PickCube-v1": TaskSpec("panda", "pd_ee_delta_pos", 9, 4, 200, "pick_cube"),
+    "PickCube-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 200, "pick_cube"),
     "PushCube-v1": TaskSpec("panda", "pd_ee_delta_pos", 9, 4, 200, "push_cube"),
     "StackCube-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 400, "stack_cube"),
     "PegInsertionSide-v1": TaskSpec("panda_wristcam", "pd_ee_delta_pose", 9, 7, 500, "peg_insertion_side"),
@@ -35,11 +35,18 @@ TASKS = {
 }
 
 
-def get_task(env_id):
+def get_task(env_id, *, contract_version=None):
     try:
-        return TASKS[env_id]
+        task = TASKS[env_id]
     except KeyError:
         raise ValueError(f"FlowDP3 尚未接入任务 {env_id!r}；可选 {list(TASKS)}") from None
+    if contract_version is not None:
+        supported = (1, 2, 4) if env_id == "PickCube-v1" else (3,)
+        if type(contract_version) is not int or contract_version not in supported:
+            raise ValueError(f"{env_id} 不支持观测契约版本 {contract_version!r}")
+        if env_id == "PickCube-v1" and contract_version in (1, 2):
+            return replace(task, control_mode="pd_ee_delta_pos", action_dim=4)
+    return task
 
 
 def task_sensors(env_id):

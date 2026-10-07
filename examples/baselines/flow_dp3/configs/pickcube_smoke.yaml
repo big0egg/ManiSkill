@@ -1,5 +1,6 @@
 # 仅检查链路的小模型；不能用于宣称原模型性能。编码器结构保持一致。
 policy:
+  action_dim: 7
   horizon: 16
   n_obs_steps: 2
   n_action_steps: 8

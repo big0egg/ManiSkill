@@ -353,8 +353,8 @@ cd /mnt/workspace/ManiSkill
 
 python -B examples/baselines/flow_dp3/train.py \
   --config examples/baselines/flow_dp3/configs/pickcube.yaml \
-  --data .runtime/flow_dp3/pickcube-100-v2.h5 \
-  --output .runtime/flow_dp3/pickcube-task-reference/full \
+  --env-id PickCube-v1 --data .runtime/flow_dp3/PickCube-v1-pose-v4.h5 \
+  --output .runtime/flow_dp3/PickCube-v1-pose-v4/full \
   --device cuda:0 --steps 30000 --batch-size 32
 ```
 
@@ -377,7 +377,7 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 
 ```bash
 python -B examples/baselines/flow_dp3/train.py \
-  --config examples/baselines/flow_dp3/configs/pickcube.yaml \
+  --config .runtime/flow_dp3/pickcube-001/full/config.yaml \
   --data .runtime/flow_dp3/pickcube-100-v2.h5 \
   --output .runtime/flow_dp3/pickcube-001/full \
   --resume .runtime/flow_dp3/pickcube-001/full/last.pt \
@@ -385,6 +385,7 @@ python -B examples/baselines/flow_dp3/train.py \
 ```
 
 `--steps 30000` 是恢复后达到总计 30,000 次更新，不是再增加 30,000。恢复时配置、数据指纹、batch size 和设备类型需要匹配，输出目录必须是原训练目录。如果 checkpoint 已达到 30,000，入口会拒绝这个目标。
+旧4维 PickCube 恢复必须使用原训练目录保存的配置；当前 `pickcube.yaml` 已明确要求新7维动作，不能用于恢复旧接口。
 
 ### 8.4 FM 独立测试示例
 
@@ -475,6 +476,8 @@ DP state 使用的真值信息与视觉策略不同；点云 FM 与 RGB DP 也�
 
 ### 10.2 当前 6 个 DP 基准任务：本体与动作维度
 
+本表记录原 DP 基准控制方式；FlowDP3 的新 PickCube v4 已改为7维位姿动作，见第10.6节。这里的 DP 基准设置保持不变。
+
 `panda` 是 7 轴机械臂加平行夹爪，仿真关节状态包含两个手指关节；`panda_wristcam` 在相同本体上增加腕部相机；`panda_stick` 是末端装有固定杆的 7 轴机械臂，没有可控夹爪。
 
 | 任务 | 任务目标 | DP 基准本体 | `qpos` / `qvel` 各自维度 | 回放 / 策略控制模式 | 单步动作维度 |
@@ -558,7 +561,7 @@ crop 优先覆盖操作物体与末端活动区域，不要求保留机械臂所
 
 ### 10.6 FlowDP3 实际输入、序列与适配边界
 
-当前完整适配仍为 **PickCube + Panda + `pd_ee_delta_pos`**。环境先产生原始点云，再过滤有效点、变换到机器人基座坐标、crop、最多预采样 4096 点，最后 **FPS 下采样到 512 点**。点数不足 512 时适配器报错。512 是机器人、目标物体、桌面等全部保留类别合计的点数，没有固定的类别配额。
+本节描述 **PickCube + Panda** 的实际输入；新 v4 接口使用 **`pd_ee_delta_pose`、7维动作**，历史 v1/v2 保留 `pd_ee_delta_pos`、4维动作。环境先产生原始点云，再过滤有效点、变换到机器人基座坐标、crop、最多预采样 4096 点，最后 **FPS 下采样到 512 点**。点数不足 512 时适配器报错。512 是机器人、目标物体、桌面等全部保留类别合计的点数，没有固定的类别配额。
 
 | 模型 / 数据字段 | 内容 | 单帧形状，省略 B |
 | --- | --- | --- |
@@ -568,11 +571,11 @@ crop 优先覆盖操作物体与末端活动区域，不要求保留机械臂所
 | `state[25:28]` | 基座坐标中的目标位置 | `(3,)` |
 | `state` 合计 | 本体、TCP 与任务目标；不包含物体真值、抓取标志或成功标志 | **`(28,)`** |
 | `pointcloud_distance` | 每点 `[dx,dy,dz,‖d‖] / length_scale`，d 是点相对 TCP 的基座坐标差 | **`(512,4)`** |
-| `action` | 末端平移 3 + 夹爪 1 | **`(4,)`** |
+| `action` | 新 v4：末端平移 3 + 旋转 3 + 夹爪 1；旧 v1/v2：平移 3 + 夹爪 1 | **新 `(7,)`；旧 `(4,)`** |
 
 `pointcloud_distance` 的第 4 维是到 TCP 的距离，和原始 `xyzw` 的有效标志不同。当前 `length_scale=1.0`，xyz 差与距离保持米制数值；RGB、分割 ID、相机参数和原始有效标志均未拼入这 4 个通道。
 
-当前策略配置 `n_obs_steps=2`、`horizon=16`、`n_action_steps=8`：批大小为 B 时，条件输入是 `state: (B,2,28)` 与 `pointcloud_distance: (B,2,512,4)`，预测动作序列是 `(B,16,4)`，每次执行的动作段是 `(B,8,4)`。FlowDP3 HDF5 中一条有 T 个动作的轨迹保存 `action: (T,4)`，以及 `state: (T+1,28)`、`pointcloud_distance: (T+1,512,4)`，多出的观测是最后一步动作后的状态；原始 ManiSkill 轨迹文件使用的动作字段名则是 `actions`。
+当前策略配置 `n_obs_steps=2`、`horizon=16`、`n_action_steps=8`：批大小为 B 时，条件输入是 `state: (B,2,28)` 与 `pointcloud_distance: (B,2,512,4)`，新 v4 预测动作序列是 `(B,16,7)`，每次执行的动作段是 `(B,8,7)`。FlowDP3 HDF5 中一条有 T 个动作的轨迹保存 `action: (T,7)`，以及 `state: (T+1,28)`、`pointcloud_distance: (T+1,512,4)`，多出的观测是最后一步动作后的状态；历史 v1/v2 的动作最后一维仍为4。原始 ManiSkill 轨迹文件使用的动作字段名则是 `actions`。新接口验证及数据路径见 [PickCube 位姿接口报告](testpointcloud/PICKCUBE_POSE_REPORT.md)。
 
 五个相机预设任务可复用点云处理接口，**不能据此认为五个任务都已获得可训练的 28 维状态接口**。例如 PushCube 的纯视觉 `extra` 不提供 `goal_pos`，PandaStick 本体是 7 维关节位置 / 速度，PegInsertionSide 的策略动作是 7 维；它们需要各自的任务状态与动作适配。PushT 当前没有上述五任务的 crop 预设。
 

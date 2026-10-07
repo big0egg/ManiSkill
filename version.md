@@ -11,7 +11,7 @@
 
 | 任务 `--env-id` | 机器人 | 策略控制器 | 状态维度 | 动作维度 | 本版默认步数上限 |
 | --- | --- | --- | --- | --- | --- |
-| PickCube-v1 | panda | pd_ee_delta_pos | 28 | 4 | 200 |
+| PickCube-v1 | panda | pd_ee_delta_pose | 28 | 7 | 200 |
 | PushCube-v1 | panda | pd_ee_delta_pos | 25 | 4 | 200 |
 | StackCube-v1 | panda | pd_ee_delta_pose | 25 | 7 | 400 |
 | PegInsertionSide-v1 | panda_wristcam | pd_ee_delta_pose | 25 | 7 | 500 |
@@ -34,7 +34,7 @@ PandaStick 为7+7+7，共21维，没有夹爪。PickCube 保留历史3维目标�
 Peg 保留腕部相机，合并相机点云后总共采样512点。
 可视化颜色表示距离，未作为点云颜色输入模型。
 
-新增任务采用观测契约 v3，历史 PickCube v1/v2 读取路径保留。
+四个新增任务继续采用观测契约 v3；PickCube 新接口采用 v4，保留旋转动作。历史 PickCube v1/v2 仍按4维 `pd_ee_delta_pos` 读取，恢复旧实验需使用原配置。新接口转换与核验见 [PickCube 位姿接口报告](testpointcloud/PICKCUBE_POSE_REPORT.md)。
 数据、配置、checkpoint、环境的任务与维度均作一致性校验，显式 `--env-id` 可以防止混用。
 文件名不会改变真实任务：已有 `drawtriangle-100-camera-v1.h5` 实际记录的是 PickCube，
 不能作为 DrawTriangle 数据；原有 PickCube 权重也不能直接用于绘画。

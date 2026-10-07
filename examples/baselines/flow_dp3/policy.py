@@ -21,7 +21,7 @@ class PolicyConfig:
     n_obs_steps: int = 2
     n_action_steps: int = 8
     state_dim: int = 28
-    action_dim: int = 4
+    action_dim: int = 7
     radius1_m: float = 0.05
     radius2_m: float = 0.12
     length_scale: float = 1.0

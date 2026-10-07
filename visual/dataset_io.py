@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/pickcube-100-camera-v5.h5'
+DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/PickCube-v1-pose-v4.h5'
 
 
 @dataclass

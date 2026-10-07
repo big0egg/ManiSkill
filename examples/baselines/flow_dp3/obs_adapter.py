@@ -1,4 +1,4 @@
-"""任务物理点云与本体接口；兼容历史 PickCube v1/v2。"""
+"""任务物理点云与本体接口；PickCube v4 位姿动作兼容历史 v1/v2 平移动作。"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -38,9 +38,10 @@ class ObservationConfig:
         ):
             raise ValueError("裁剪边界必须是三维有限值，min < max")
 
-    def contract(self, *, sensor_configs=None, env_id="PickCube-v1"):
-        task = get_task(env_id)
-        return {"version": 2 if env_id == "PickCube-v1" else 3,
+    def contract(self, *, sensor_configs=None, env_id="PickCube-v1", contract_version=None):
+        version = contract_version if contract_version is not None else (4 if env_id == "PickCube-v1" else 3)
+        task = get_task(env_id, contract_version=version)
+        return {"version": version,
                 "pointcloud": asdict(self), "state_dim": task.state_dim,
                 "state_fields": task.state_fields, "frame": "robot_base",
                 "distance_channels": "[relative_xyz_m, norm_m] / length_scale",
@@ -57,11 +58,10 @@ def config_from_contract(contract):
     config = ObservationConfig(**contract["pointcloud"])
     version = contract.get("version")
     if version == 1:
-        expected = config.contract(sensor_configs={"shader_pack": "default"})
-        expected["version"] = 1
-    elif version in (2, 3):
+        expected = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
+    elif version in (2, 3, 4):
         env_id = contract.get("env_id", "PickCube-v1")
-        task = get_task(env_id)
+        task = get_task(env_id, contract_version=version)
         sensors = contract.get("sensor_configs", {})
         names = {"shader_pack", "base_camera"}
         if task.robot == "panda_wristcam":
@@ -86,7 +86,7 @@ def config_from_contract(contract):
                 0 < camera["fov"] < math.pi and 0 < camera["near"] < camera["far"]
             ):
                 raise ValueError("相机视场和裁剪面参数无效")
-        expected = config.contract(sensor_configs=sensors, env_id=env_id)
+        expected = config.contract(sensor_configs=sensors, env_id=env_id, contract_version=version)
     else:
         raise ValueError(f"不支持观测契约版本 {version!r}")
     if json.dumps(expected, sort_keys=True) != json.dumps(contract, sort_keys=True):
@@ -137,7 +137,7 @@ def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1"):
 
 def adapt_observation(obs, agent, config, *, contract=None):
     env_id = contract["env_id"] if contract is not None else "PickCube-v1"
-    task = get_task(env_id)
+    task = get_task(env_id, contract_version=contract["version"] if contract is not None else None)
     distance, diagnostics = pointcloud_features(obs, agent, config)
     qpos = torch.as_tensor(obs["agent"]["qpos"]).detach().cpu().reshape(1, -1)
     qvel = torch.as_tensor(obs["agent"]["qvel"]).detach().cpu().reshape(1, -1)
@@ -163,7 +163,7 @@ def make_env(control_mode=None, visual=True, max_episode_steps=None, render_mode
     if contract is not None and env_id is not None and env_id != contract["env_id"]:
         raise ValueError("指定任务与数据/checkpoint 不匹配")
     env_id = contract["env_id"] if contract is not None else (env_id or "PickCube-v1")
-    task = get_task(env_id)
+    task = get_task(env_id, contract_version=contract["version"] if contract is not None else None)
     control_mode = control_mode or task.control_mode
     max_episode_steps = max_episode_steps or task.max_steps
     if env_id == "DrawTriangle-v1" and max_episode_steps > 300:

@@ -83,8 +83,6 @@ class MultiTaskTests(unittest.TestCase):
 
     def test_dynamic_dataset_loss_prediction_and_checkpoint_roundtrip(self):
         for env_id, task in TASKS.items():
-            if env_id == "PickCube-v1":
-                continue
             with self.subTest(task=env_id), tempfile.TemporaryDirectory() as directory:
                 contract = self.contract(env_id)
                 path = Path(directory)/"data.h5"

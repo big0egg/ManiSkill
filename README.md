@@ -216,7 +216,7 @@ FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环�
 | --- | --- |
 | 点云 | 每帧 `[512,4]`；前三通道为 `(基座系点坐标 − 基座系末端坐标) / L`，第四通道为相对位移模长 `/ L` |
 | 状态 | 28维：qpos 9、qvel 9、基座系末端位姿7（四元数 wxyz）、基座系目标位置3 |
-| 动作 | 4维 `pd_ee_delta_pos`：标准化末端 xyz 增量及夹爪动作，范围 `[-1,1]` |
+| 动作 | 新 PickCube 为7维 `pd_ee_delta_pose`：标准化末端 xyz、旋转增量及夹爪动作；旧 v1/v2 数据和 checkpoint 仍使用4维 `pd_ee_delta_pos` |
 | 时间窗口 | 默认2帧观测、16步动作预测、每次执行8步动作 |
 | 仿真 / 相机 | 单环境 CPU PhysX；PickCube 点云相机 256×256、60°，世界位置 `(0.30,-0.30,0.35)`、注视 `(0,0,0.12)`；软件 Vulkan |
 
@@ -236,9 +236,9 @@ FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环�
 
 Stack实验录制显式使用`robot_uids="panda"`；任务原有默认机器人`panda_wristcam`保持不变，其`hand_camera`也保留。默认机器人拼接两台相机时，点数分布不能直接套用单相机实验表。
 
-新训练和可视化默认使用 `pickcube-100-camera-v5.h5`。数据契约v2同时记录crop、相机pose（wxyz）、分辨率、视场角、裁剪面及shader，评估和视频回放按记录的参数创建环境。旧v1契约显式恢复原128×128相机及旧crop；旧HDF5/checkpoint不会自动变成新观测。使用新配置需重新转换原始轨迹并开始新训练，命令见 [introduce.md](introduce.md) 第2节。
+新 PickCube 训练和可视化使用 `.runtime/flow_dp3/PickCube-v1-pose-v4.h5`，v4 契约记录7维位姿动作并保留原相机/crop配置。评估和视频回放按数据/checkpoint 记录的契约创建环境；旧 v1/v2 仍加载4维平移动作，v1 还恢复原128×128相机。新动作接口需要从原始关节轨迹重新执行转换、采集观测并开始新训练，不能给旧4维标签补造旋转。命令见 [introduce.md](introduce.md) 第2节，验证见 [PickCube 位姿接口报告](testpointcloud/PICKCUBE_POSE_REPORT.md)。
 
-训练和验证按整条 episode 划分，状态与动作归一化只使用训练 episode。模型输入包含任务目标位置；物体真值位姿、抓取状态和成功标记仅用于环境或数据检查。PickCube 正式配置、烟雾配置及策略缺省的 SA1/SA2 半径为 0.05 / 0.12 米，依据见 [半径实验](testpointcloud/SA_RADIUS_REPORT.md)，成功率仍需新训练验证。现有点云数据可复用；旧 checkpoint 按保存的半径加载。其他任务配置暂保留 0.10 / 0.20 米。
+训练和验证按整条 episode 划分，状态与动作归一化只使用训练 episode。模型输入包含任务目标位置；物体真值位姿、抓取状态和成功标记仅用于环境或数据检查。PickCube 正式配置、烟雾配置及策略缺省的 SA1/SA2 半径为 0.05 / 0.12 米，依据见 [半径实验](testpointcloud/SA_RADIUS_REPORT.md)，成功率仍需新训练验证。仅修改半径时点云数据可复用；改为7维位姿动作时需重新转换原始轨迹。旧 checkpoint 按保存的半径加载。其他任务配置暂保留 0.10 / 0.20 米。
 
 ## 7. 常见问题
 
