@@ -55,6 +55,7 @@ ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 
 ```bash
 export FLOW_TASK=DrawTriangle-v1
 export FLOW_EXPERIMENT=first-v1
+export FLOW_CONTROL=joint
 case "$FLOW_TASK" in
     PickCube-v1) FLOW_CONFIG_NAME=pickcube.yaml ;;
     PushCube-v1) FLOW_CONFIG_NAME=pushcube.yaml ;;
@@ -70,7 +71,8 @@ mkdir -p "$FLOW_RUN_ROOT"
 ```
 
 后续命令沿用这些变量。`FLOW_DATA` 指向真实训练数据，`FLOW_RUN_ROOT` 保存训练、日志和评估输出，数据可以放在实验目录外。
-新 PickCube 保持示范使用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。复用时先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照使用 `pickcube_joint.yaml` 和 `pickcube-joint-hold-v6.h5`，state仍为28维，action为8维。旧实验恢复需使用原目录保存的配置。
+PickCube 的控制方式在这里设置：`FLOW_CONTROL=ee` 使用7维末端位姿增量，`FLOW_CONTROL=joint` 使用8维绝对关节目标。其他四个任务保持 `ee`，对应上表各自的末端控制器。第3、4节命令统一通过 `--control-mode "$FLOW_CONTROL"` 传入；同一份双分支数据和 `pickcube.yaml` 可分别训练两种控制方式。两次训练使用不同的 `FLOW_EXPERIMENT` 和输出目录，`FLOW_DATA` 可以指向同一个文件。Joint 控制下的点云矢量距离仍按实际 TCP 计算，state仍为28维。
+已有单分支 PickCube 保持示范可复用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照数据为同目录的 `pickcube-joint-hold-v6.h5`，设置 `FLOW_CONTROL=joint`；显式选择控制方式后也可使用 `pickcube.yaml`。旧实验恢复需使用原目录保存的配置。
 更换目录或文件名不会改变任务；已有 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
 本文命令显式传 `--env-id "$FLOW_TASK"`，任务不匹配时会报错。
 
@@ -89,6 +91,7 @@ PickCube 保留历史3维目标位置，共28维。四个新增任务不增加�
 | `OMP_NUM_THREADS` / `MKL_NUM_THREADS` / `OPENBLAS_NUM_THREADS` | 正整数，本环境沿用 `1` | CPU 数值库线程数 |
 | `FLOW_TASK` | 上表五个完整任务名之一，如 `DrawTriangle-v1` | 选择任务，显式校验数据和 checkpoint |
 | `FLOW_EXPERIMENT` | 自定名称，如 `first-v1`、`camera-v2` | 区分新实验，避免覆盖输出 |
+| `FLOW_CONTROL` | `ee`；PickCube也可填 `joint` | 训练选择数据控制分支，推理核对模型控制方式；恢复时保持原值 |
 | `FLOW_CONFIG` | 上表对应 YAML 的完整路径 | 正式模型结构与训练配置；由 case 自动设置 |
 | `FLOW_DATA` | 已转换或将生成的训练 `.h5` 文件路径 | 数据采集输出和训练输入 |
 | `FLOW_RUN_ROOT` | 可写目录路径，如 `…/DrawTriangle-v1-first-v1` | 本次实验输出根目录；新训练换目录，恢复训练用原目录 |
@@ -262,6 +265,7 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 
 先完成第1节任务选择和第2节数据准备。以下命令使用任务对应的正式配置、batch size 32、30000次更新；训练和评估统一记录到 `manskill` 项目。
 使用 online 日志前按 README 安装 W&B 并登录；不需要 W&B 时跳过登录，将命令中的 `online` 改为 `disabled`。
+运行前确认第1.2节的 `FLOW_CONTROL`：PickCube填 `ee` 或 `joint`，其他任务填 `ee`。无需为了切换PickCube控制方式修改 YAML；显式参数会按所选v5/v6数据设置7/8维动作接口。
 
 ```bash
 wandb login
@@ -269,6 +273,7 @@ wandb login
 python -B examples/baselines/flow_dp3/train.py \
     --config "$FLOW_CONFIG" \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
+    --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
     --batch-size 32 --steps 30000 \
     --wandb-mode online --wandb-project manskill \
@@ -292,11 +297,13 @@ state/action 归一化只统计训练 episode；点云保持契约指定的物�
 恢复时不用第1.2节的新实验编号创建另一个目录。
 示例假定原训练使用 batch size 32、PPU 和总预算30000步；原实验不同则按原记录填写。
 使用训练目录内保存的解析后配置，避免后续修改候选配置影响旧实验。
+同时将 `FLOW_CONTROL` 设为原训练的控制方式：Joint模型填 `joint`，末端模型填 `ee`。双分支数据省略此参数会默认选择ee，因此恢复Joint训练必须继续显式选择joint。
 
 ```bash
 python -B examples/baselines/flow_dp3/train.py \
     --config "$FLOW_RUN_ROOT/full/config.yaml" \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
+    --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
     --batch-size 32 --steps 30000 \
     --resume "$FLOW_RUN_ROOT/full/last.pt" \
@@ -313,6 +320,7 @@ python -B examples/baselines/flow_dp3/train.py \
 
 ```bash
 export FLOW_TASK=PickCube-v1
+export FLOW_CONTROL=ee
 export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-001"
 export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.h5"
 ```
@@ -357,11 +365,13 @@ cat "$FLOW_RUN_ROOT/full/run.json"
 python -B examples/baselines/flow_dp3/train.py \
     --config examples/baselines/flow_dp3/configs/multi_task_smoke.yaml \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
+    --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/smoke" --device cpu \
     --steps 20 --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/evaluate.py \
     --checkpoint "$FLOW_RUN_ROOT/smoke/best.pt" --env-id "$FLOW_TASK" \
+    --control-mode "$FLOW_CONTROL" \
     --device cpu --episodes 1 --start-seed 1000 --max-steps 16 \
     --save-video --video-dir "$FLOW_RUN_ROOT/smoke-videos" \
     --output "$FLOW_RUN_ROOT/smoke-eval.json" --wandb-mode disabled
@@ -375,10 +385,12 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 ### 4.1 运行评估并保存 MP4
 
 训练后执行，默认使用 `best.pt` 的 EMA 权重：
+`FLOW_CONTROL` 保持训练时的值；评估的 `--control-mode` 用于核对checkpoint。需要评估另一种控制方式时，选择该方式训练得到的checkpoint及输出目录。省略此参数会自动跟随checkpoint，不能通过参数将7维末端模型切换成8维关节模型。
 
 ```bash
 python -B examples/baselines/flow_dp3/evaluate.py \
     --checkpoint "$FLOW_RUN_ROOT/full/best.pt" --env-id "$FLOW_TASK" --device cuda:0 \
+    --control-mode "$FLOW_CONTROL" \
     --episodes 20 --start-seed 1000 --policy-seed 42 \
     --save-video --video-dir "$FLOW_RUN_ROOT/videos-full" --video-fps 20 \
     --output "$FLOW_RUN_ROOT/eval-full-video.json" \
@@ -407,6 +419,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | --- | --- | --- | --- |
 | `--checkpoint` | 必填 | 已存在的本项目 `.pt` 文件，如 `full/best.pt` 或 `full/last.pt` | 加载策略、归一化统计和输入契约 |
 | `--env-id` | 从 checkpoint 读取 | 第1.2节五个完整任务名之一 | 可选任务校验，显式指定须匹配权重；不能强制覆盖环境 |
+| `--control-mode` | 从 checkpoint 读取 | `ee`、`joint`或完整控制器名称 | 可选控制方式校验，须与模型一致；切换控制方式需加载对应训练模型 |
 | `--device` | `cuda:0` | 只能填 `cpu` 或 `cuda:0` | 策略计算设备；评估可跨设备加载权重 |
 | `--episodes` | `10` | 正整数，如 `20`、`50`、`100` | 独立评估局数 |
 | `--start-seed` | `1000` | 非负整数，如 `1000`、`2000` | 环境起始种子，后续逐局递增；种子集合应与训练数据分离 |
