@@ -12,6 +12,7 @@ import time
 import numpy as np
 
 from dataset_io import DEFAULT_DATASET, episode_names, load_episode, pick_point, require_new, view_bounds
+from control_modes import CONTROL_CHOICES
 
 
 def import_open3d(headless=False):
@@ -108,7 +109,7 @@ class InteractiveViewer:
         self.window.add_child(self.panel)
         self.panel.add_child(gui.Label('Episode'))
         chooser = gui.Combobox()
-        self.names = episode_names(args.dataset)
+        self.names = episode_names(args.dataset, args.control_mode)
         for name in self.names:
             chooser.add_item(name)
         chooser.selected_index = self.names.index(episode.name)
@@ -163,7 +164,7 @@ class InteractiveViewer:
 
     def change_episode(self, text, index):
         self.playing = False
-        self.set_episode(load_episode(self.args.dataset, text), 0)
+        self.set_episode(load_episode(self.args.dataset, text, self.args.control_mode), 0)
 
     def reset_camera(self):
         center, extent = self.view.camera_bounds()
@@ -301,6 +302,7 @@ def export(episode, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=Path, default=DEFAULT_DATASET)
+    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='选择ee/joint分支；默认ee')
     parser.add_argument('--episode', default='0', help='episode 索引或完整名称')
     parser.add_argument('--frame', type=int, default=0)
     parser.add_argument('--pick-points', action='store_true', help='点击实际点显示基座坐标、相对位移、距离与原始索引')
@@ -325,7 +327,7 @@ def main():
             parser.error(f'{key} 必须为有限正数')
     if args.vector_count < 0:
         parser.error('vector-count 不得为负数')
-    ep = load_episode(args.dataset, args.episode)
+    ep = load_episode(args.dataset, args.episode, args.control_mode)
     if not 0 <= args.frame < len(ep.states):
         parser.error(f'frame 必须在 0 到 {len(ep.states) - 1} 之间')
     headless = any(p is not None for p in (args.png, args.video, args.ply))

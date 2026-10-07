@@ -1,5 +1,9 @@
 # Flow DP3 版本记录与任务接入规划
 
+## PickCube双控制录制与自动专家视频（2026-10-07）
+
+新录制默认保存同源 `ee` / `joint` 双分支，每个分支保存实际执行后的观测、动作和40步保持结果；两个分支均成功才收录。训练通过 `--control-mode ee/joint` 自动选择数据和动作接口；推理按checkpoint执行，同名参数校验一致性。每条收录示范默认同步生成场景MP4，元信息记录路径、帧数和FPS；其他任务沿用原控制器，也默认录像。旧单分支数据和旧checkpoint继续兼容。命令和验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
+
 ## 第一版：四个新增任务（2026-10-07）
 
 已接入 PushCube、StackCube、PegInsertionSide、DrawTriangle，保留原有 PickCube。
@@ -34,7 +38,7 @@ PandaStick 为7+7+7，共21维，没有夹爪。PickCube 保留历史3维目标�
 Peg 保留腕部相机，合并相机点云后总共采样512点。
 可视化颜色表示距离，未作为点云颜色输入模型。
 
-四个新增任务继续采用观测契约 v3；PickCube 新接口采用 v4，保留旋转动作。历史 PickCube v1/v2 仍按4维 `pd_ee_delta_pos` 读取，恢复旧实验需使用原配置。新接口转换与核验见 [PickCube 位姿接口报告](testpointcloud/PICKCUBE_POSE_REPORT.md)。
+四个其他任务继续采用契约 v3；PickCube 新接口采用 v5（7维位姿增量＋保持示范）或 v6（8维关节绝对目标），state均为28维。新窗口覆盖末尾真实状态，区分增量/绝对动作填充，关节角按实际弧度范围执行。历史 PickCube v1/v2/v4 的接口和采样规则保留，恢复旧实验使用原配置。实现、数据与对照见 [稳定保持报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
 数据、配置、checkpoint、环境的任务与维度均作一致性校验，显式 `--env-id` 可以防止混用。
 文件名不会改变真实任务：已有 `drawtriangle-100-camera-v1.h5` 实际记录的是 PickCube，
 不能作为 DrawTriangle 数据；原有 PickCube 权重也不能直接用于绘画。

@@ -34,8 +34,11 @@ def load_config(path):
         del config["policy"][key]
     required = {"seed", "batch_size", "steps", "lr", "betas", "weight_decay", "warmup_steps",
                 "val_ratio", "val_every", "val_batches", "checkpoint_every", "grad_clip"}
-    if set(config["training"]) != required:
+    if set(config["training"]) - {"required_contract_version"} != required:
         raise ValueError(f"training 配置键不匹配：{set(config['training']) ^ required}")
+    version = config["training"].get("required_contract_version")
+    if version is not None and (type(version) is not int or version < 1):
+        raise ValueError("required_contract_version 必须为正整数")
     return config
 
 

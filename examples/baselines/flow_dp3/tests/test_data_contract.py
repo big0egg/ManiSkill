@@ -22,7 +22,7 @@ from scene_bounds import TASK_SCENE_CROP_BOUNDS
 class DataContractTests(unittest.TestCase):
     def make_data(self, path):
         with h5py.File(path, "w") as stream:
-            stream.attrs["contract"] = json.dumps(ObservationConfig(num_points=128).contract())
+            stream.attrs["contract"] = json.dumps(ObservationConfig(num_points=128).contract(contract_version=4))
             stream.attrs["manifest"] = "{}"
             for i in range(3):
                 group = stream.create_group(f"episode_{i:05d}")

@@ -4,13 +4,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/PickCube-v1-pose-v4.h5'
+sys.path.insert(0, str(ROOT / 'examples/baselines/flow_dp3'))
+from control_modes import select_dataset_group
+DEFAULT_DATASET = ROOT / 'testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5'
 
 
 @dataclass
@@ -56,9 +59,10 @@ class Episode:
                 'policy_features': self.features[frame, index].tolist()}
 
 
-def episode_names(path):
+def episode_names(path, control_mode=None):
     with h5py.File(path, 'r') as f:
-        return sorted(f.keys())
+        root, _, _ = select_dataset_group(f, control_mode)
+        return sorted(root.keys())
 
 
 def view_bounds(episode, coordinate_frame='base', near_radius=None):
@@ -82,19 +86,20 @@ def view_bounds(episode, coordinate_frame='base', near_radius=None):
     return ((low + high) / 2).astype(np.float32), max(float((high - low).max()), .5)
 
 
-def load_episode(path, name='0'):
+def load_episode(path, name='0', control_mode=None):
     with h5py.File(path, 'r') as f:
-        names = sorted(f.keys())
+        root, contract, _ = select_dataset_group(f, control_mode)
+        names = sorted(root.keys())
         if str(name).isdigit():
             index = int(name)
             if not 0 <= index < len(names):
                 raise ValueError(f'episode 索引越界：{index}，共有 {len(names)} 条')
             name = names[index]
-        if name not in f:
+        if name not in root:
             raise ValueError(f'不存在 episode：{name}')
-        g = f[name]
+        g = root[name]
         episode = Episode(name, g['pointcloud_distance'][:], g['state'][:], g['action'][:],
-                          json.loads(g.attrs['metadata']), json.loads(f.attrs['contract']))
+                          json.loads(g.attrs['metadata']), contract)
     c = episode.contract
     if c['frame'] != 'robot_base' or c['distance_channels'] != '[relative_xyz_m, norm_m] / length_scale':
         raise ValueError('不支持的数据坐标/距离契约')
@@ -107,8 +112,13 @@ def load_episode(path, name='0'):
         raise ValueError(f'{name}: 包含 NaN/Inf')
     if np.max(np.abs(np.linalg.norm(episode.features[..., :3], axis=-1) - episode.features[..., 3])) > 1e-5:
         raise ValueError(f'{name}: 距离通道与矢量不一致')
-    if np.abs(episode.actions).max(initial=0) > 1.0001:
-        raise ValueError(f'{name}: 动作超出 [-1,1]')
+    bounds = c.get('action_space', {'low': [-1.] * c['action_dim'], 'high': [1.] * c['action_dim']})
+    low, high = np.asarray(bounds['low']), np.asarray(bounds['high'])
+    if (low.shape != (c['action_dim'],) or high.shape != low.shape or
+            not np.isfinite(low).all() or not np.isfinite(high).all() or np.any(low >= high)):
+        raise ValueError(f'{name}: 动作范围契约异常')
+    if np.any(episode.actions < low - 1e-4) or np.any(episode.actions > high + 1e-4):
+        raise ValueError(f'{name}: 动作超出保存的控制器范围')
     return episode
 
 

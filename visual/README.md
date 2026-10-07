@@ -1,15 +1,17 @@
 # Flow DP3 数据观测可视化
 
+PickCube 新录制支持同一 HDF5 内的 `ee` / `joint` 双分支。`pointcloud.py` 和 `export_videos.py` 均可使用 `--control-mode ee` 或 `--control-mode joint`，默认ee；旧单分支文件继续沿用其契约。专家录制已默认生成纯场景 MP4，位于 `<数据集名称>-videos-full/{ee,joint}/`，本工具仍用于额外的点云/状态面板。使用与验证见 [双控制录制报告](../testpointcloud/DUAL_CONTROL_REPORT.md)。
+
 所有工具只读输入 HDF5，不修改训练代码、数据或 checkpoint。默认数据为
-`.runtime/flow_dp3/PickCube-v1-pose-v4.h5`，可通过 `--dataset` 指定其他文件。
+`testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`，可通过 `--dataset` 指定其他文件。
 新默认数据使用256×256、60°相机，世界位置`(0.30,-0.30,0.35)`、注视`(0,0,0.12)`，
 在基座系 crop `min=(0.44,-0.23,-0.03)`、`max=(0.79,0.25,0.52)` 后执行 FPS512，
 优先保留方块与末端，允许裁掉部分机械臂；512点仍包含桌面。旧文件可显式指定，
-v1录像回放恢复旧128×128相机，v2/v4按契约保存的相机参数执行；旧v1/v2使用4维平移动作，新PickCube v4使用7维位姿动作。
+v1录像回放恢复旧128×128相机，v2/v4/v5/v6按契约保存的相机参数执行；v1/v2使用4维平移动作，v4/v5使用7维位姿动作，v6使用8维关节绝对目标。
 从项目根目录执行下面的命令。
 
 第一版也支持 PushCube、StackCube、PegInsertionSide、DrawTriangle 的训练 HDF5，
-通过 `--dataset` 指定对应文件，按契约读取21/25/28维状态及3/4/7维动作。
+通过 `--dataset` 指定对应文件，按契约读取21/25/28维状态及3/4/7/8维动作。
 新增任务没有 GOAL 状态字段，不绘制虚构目标标记；同步视频显示 TCP XYZ。
 任务选择、生成数据、训练和推理命令见 [introduce.md](../introduce.md)。
 本页的默认路径、轨迹索引和帧范围示例对应 PickCube 数据。
@@ -32,7 +34,7 @@ cd /mnt/workspace/ManiSkill
 
 ```bash
 .venv-ppu/bin/python -B visual/pointcloud.py \
-  --dataset .runtime/flow_dp3/PickCube-v1-pose-v4.h5 \
+  --dataset testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5 \
   --episode 0 --frame 0 \
   --export-backend matplotlib --export-view both \
   --fps 20 \
@@ -113,7 +115,7 @@ distance_m = features[3] * length_scale
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/PickCube-v1-pose-v4.h5` | 指定输入：`--dataset /mnt/workspace/ManiSkill/.runtime/flow_dp3/PickCube-v1-pose-v4.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` | 指定输入：`--dataset /mnt/workspace/ManiSkill/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` |
 | `--episode` | 一个非负整数索引，或 HDF5 中已有的完整轨迹名称 | `0` | 索引按名称排序，从0开始；当前可填 `0`～`99`，如 `--episode 54` 或 `--episode episode_00054` |
 | `--frame` | 整数，`0`～当前轨迹的动作数 `T`，含两端 | `0` | GUI 初始帧、PNG/PLY 保存帧、MP4 起始帧；如 `--frame 30`。当前 episode 0 可填 `0`～`74`，其他轨迹长度不同 |
 | `--coordinate-frame` | 只能填 `base` 或 `relative` | `base` | `base`：机器人基座坐标系；`relative`：原点平移到当前 TCP，方向仍为基座轴。例：`--coordinate-frame relative` |
@@ -197,7 +199,7 @@ PNG/MP4 的后端选择不影响原有 Open3D GUI/选点功能或 PLY 导出。
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/PickCube-v1-pose-v4.h5` | 指定训练集：`--dataset .runtime/flow_dp3/PickCube-v1-pose-v4.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` | 指定训练集：`--dataset testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` |
 | `--episodes` | 一个或多个非负整数索引或完整轨迹名称，用空格分隔，不能重复 | 有至少100条时选 `0 2 54 80 99`，否则取前5条或全部不足5条的轨迹 | 如 `--episodes 0 2 54` 或 `--episodes episode_00000 episode_00002`；当前整数索引范围 `0`～`99` |
 | `--all` | 开关，不填值 | 关闭 | 导出训练 HDF5 中全部轨迹：`--all`。与 `--episodes` 互斥 |
 | `--output` | 输出目录路径，不是 `.mp4` 文件路径 | 输入数据所在目录下的 `<数据集文件名去掉.h5>-visualization/` | 如 `--output .runtime/flow_dp3/my-scene-videos`，每条轨迹的 MP4 和报告写入此目录；建议选择新目录 |
@@ -250,7 +252,7 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 RGB 是补录回放画面，点云与曲线直接来自训练 HDF5。不是策略预测/评估视频。
 
 工具校验 `.raw.h5` 和 `.raw.json` 的来源哈希，按 `source_episode` 找到初始场景状态，
-随后执行契约指定的控制模式及训练集保存的动作：新PickCube v4为 `pd_ee_delta_pose`，旧v1/v2为 `pd_ee_delta_pos`。每帧重新生成观测并与 HDF5 比较。
+随后执行契约指定的控制模式及训练集保存的动作：PickCube v4/v5为 `pd_ee_delta_pose`，v6为 `pd_joint_pos`，旧v1/v2为 `pd_ee_delta_pos`。每帧重新生成观测并与 HDF5 比较。
 默认非速度状态误差阈值 `1e-4`，关节速度 `1e-3`，点云四维特征 `1e-4`（策略特征单位）。
 点云逐索引严格比较，采样顺序改变也算不一致。
 

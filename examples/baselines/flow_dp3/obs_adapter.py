@@ -1,4 +1,4 @@
-"""任务物理点云与本体接口；PickCube v4 位姿动作兼容历史 v1/v2 平移动作。"""
+"""任务点云接口；Pick v5保持位姿/v6关节目标，兼容历史v1/v2/v4。"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -11,7 +11,7 @@ import torch
 from ee_relation_encoder import farthest_point_indices, gather_points
 from scene_bounds import PICKCUBE_SCENE_CROP_MIN, PICKCUBE_SCENE_CROP_MAX, get_scene_crop_bounds
 from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
-from task_registry import get_task, task_sensors
+from task_registry import get_task, task_sensors, pickcube_action_space
 
 
 STATE_FIELDS = {"qpos": [0, 9], "qvel": [9, 18], "tcp_base_pose_wxyz": [18, 25],
@@ -39,9 +39,9 @@ class ObservationConfig:
             raise ValueError("裁剪边界必须是三维有限值，min < max")
 
     def contract(self, *, sensor_configs=None, env_id="PickCube-v1", contract_version=None):
-        version = contract_version if contract_version is not None else (4 if env_id == "PickCube-v1" else 3)
+        version = contract_version if contract_version is not None else (5 if env_id == "PickCube-v1" else 3)
         task = get_task(env_id, contract_version=version)
-        return {"version": version,
+        result = {"version": version,
                 "pointcloud": asdict(self), "state_dim": task.state_dim,
                 "state_fields": task.state_fields, "frame": "robot_base",
                 "distance_channels": "[relative_xyz_m, norm_m] / length_scale",
@@ -51,6 +51,12 @@ class ObservationConfig:
                 "obs_mode": "pointcloud",
                 "sensor_configs": deepcopy(sensor_configs) if sensor_configs is not None else task_sensors(env_id),
                 "reconfiguration_freq": 1}
+        if version in (5, 6):
+            result["action_space"] = pickcube_action_space(version)
+            result["sequence_sampling"] = {
+                "current_state": "all_including_terminal",
+                "tail_action": "zero_arm_keep_gripper" if version == 5 else "repeat_absolute_target"}
+        return result
 
 
 def config_from_contract(contract):
@@ -59,7 +65,7 @@ def config_from_contract(contract):
     version = contract.get("version")
     if version == 1:
         expected = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
-    elif version in (2, 3, 4):
+    elif version in (2, 3, 4, 5, 6):
         env_id = contract.get("env_id", "PickCube-v1")
         task = get_task(env_id, contract_version=version)
         sensors = contract.get("sensor_configs", {})
@@ -92,6 +98,18 @@ def config_from_contract(contract):
     if json.dumps(expected, sort_keys=True) != json.dumps(contract, sort_keys=True):
         raise ValueError("数据/checkpoint 观测或环境契约与当前任务适配接口不同")
     return config
+
+
+def action_bounds(contract):
+    bounds = contract.get("action_space")
+    if bounds is None:
+        return [-1.0] * contract["action_dim"], [1.0] * contract["action_dim"]
+    return bounds["low"], bounds["high"]
+
+
+def clip_action(action, contract):
+    low, high = action_bounds(contract)
+    return torch.maximum(torch.minimum(action, action.new_tensor(high)), action.new_tensor(low))
 
 
 def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1"):
@@ -190,3 +208,9 @@ def validate_env(env, contract):
         raise ValueError("实际任务/机器人与契约不匹配")
     if env.action_space.shape != (contract["action_dim"],):
         raise ValueError(f"实际动作空间 {env.action_space.shape} 与契约不匹配")
+    if "action_space" in contract:
+        import numpy as np
+        low, high = action_bounds(contract)
+        if not (np.allclose(env.action_space.low, low, atol=1e-6) and
+                np.allclose(env.action_space.high, high, atol=1e-6)):
+            raise ValueError("实际动作范围与保存的契约不匹配")

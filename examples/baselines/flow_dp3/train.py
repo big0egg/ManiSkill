@@ -16,6 +16,7 @@ from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, 
 from policy import FlowDP3, PolicyConfig, update_ema
 from obs_adapter import config_from_contract
 from task_registry import TASKS
+from control_modes import CONTROL_CHOICES
 
 from runtime_utils import (DEFAULT_CONFIG, canonical, load_config, save_checkpoint,
                            select_device, sha256, to_device)
@@ -43,17 +44,29 @@ def train(args):
         torch.cuda.manual_seed_all(settings["seed"])
     policy_config = PolicyConfig(**config["policy"])
     common = dict(horizon=policy_config.horizon, n_obs_steps=policy_config.n_obs_steps,
-                  n_action_steps=policy_config.n_action_steps, val_ratio=settings["val_ratio"], seed=settings["seed"])
+                  n_action_steps=policy_config.n_action_steps, val_ratio=settings["val_ratio"], seed=settings["seed"],
+                  control_mode=getattr(args, "control_mode", None))
     training = DemoDataset(args.data, split="train", **common)
     validation = DemoDataset(args.data, split="val", **common)
     config_from_contract(training.contract)
     if args.env_id is not None and args.env_id != training.contract["env_id"]:
         raise ValueError("指定训练任务与 HDF5 不匹配")
+    # An explicit controller parameter selects both the branch and its action interface.
+    # Keep architecture/optimizer settings; historical contracts still undergo strict validation.
+    if (getattr(args, "control_mode", None) is not None and
+            training.contract["env_id"] == "PickCube-v1" and training.contract["version"] in (5, 6)):
+        config["policy"]["action_dim"] = training.contract["action_dim"]
+        if settings.get("required_contract_version") in (5, 6):
+            settings["required_contract_version"] = training.contract["version"]
     for field in ("state_dim", "action_dim"):
         recorded = training.contract[field]
         if field in config["policy"] and config["policy"][field] != recorded:
             raise ValueError(f"配置 {field} 与数据契约不匹配")
         config["policy"][field] = recorded
+    required_version = settings.get("required_contract_version")
+    if required_version is not None and training.contract["version"] != required_version:
+        raise ValueError(f"配置要求数据契约 v{required_version}，实际为 v{training.contract['version']}；"
+                         "请使用保持示范的新数据，旧实验恢复需沿用原保存配置")
     policy_config = PolicyConfig(**config["policy"])
     if training.contract["pointcloud"]["length_scale"] != policy_config.length_scale:
         raise ValueError("数据与策略 length_scale 不一致，拒绝重复或错误缩放")
@@ -110,7 +123,8 @@ def train(args):
     (output / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
     run = {"algorithm": "flow_dp3", "encoder": "ee_relation_pointnetpp", "device": str(device),
            "torch": str(torch.__version__), "data": str(args.data.resolve()), "data_sha256": fingerprint,
-           "contract": training.contract, "train_episodes": training.episodes, "val_episodes": validation.episodes,
+           "contract": training.contract, "data_group": training.group_name,
+           "train_episodes": training.episodes, "val_episodes": validation.episodes,
            "train_windows": len(training), "val_windows": len(validation),
            "parameter_count": sum(p.numel() for p in model.parameters()), "batch_size": batch_size}
     (output / "run.json").write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n")
@@ -160,6 +174,7 @@ def train(args):
                     print(json.dumps(record), flush=True)
                 if is_best or step % settings["checkpoint_every"] == 0 or step == steps:
                     payload = {"format_version": 1, "config": config, "contract": training.contract,
+                               "data_group": training.group_name,
                                "data_sha256": fingerprint, "model": model.state_dict(), "ema": ema.state_dict(),
                                "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
                                "step": step, "batch_size": batch_size, "best_validation": best_validation,
@@ -185,6 +200,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--control-mode", choices=CONTROL_CHOICES,
+                        help="选择数据分支 ee/joint；双分支默认ee，PickCube自动设置7/8维动作接口")
     parser.add_argument("--env-id", choices=list(TASKS), help="可选任务校验，实际维度和任务从数据契约读取")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cuda:0")

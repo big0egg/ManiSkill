@@ -1,5 +1,7 @@
 # 相机与操作区 crop 实验（PickCube 详细报告）
 
+最新双控制录制、自动专家 MP4 和参数选择验证见 [DUAL_CONTROL_REPORT.md](DUAL_CONTROL_REPORT.md)。数据和10份专家视频位于 `runs/dual-control/`；`test_dual_control.py` 检查分支隔离、配对拒绝、训练划分与接口校验，`validate_dual_control.py` 解码视频并与此前单分支数据比较。
+
 另外四个任务的推荐参数、点数分布和限制见
 [MULTI_TASK_REPORT.md](MULTI_TASK_REPORT.md)。以下部分是 PickCube 的较大样本实验。
 
@@ -114,3 +116,5 @@ HDF5按 `traj_<源ID>/frame_<帧号>` 保存原生RGB、segmentation、裁剪后
 采集、评估和可视化入口；真实回放转换的新训练数据及检查见INTEGRATION.md。
 
 PickCube 后续改为7维末端位姿动作（v4 契约），保留原始专家的旋转示范；旧 v1/v2 数据和 checkpoint 仍按4维动作读取。修改、真实转换与验证见 [PICKCUBE_POSE_REPORT.md](PICKCUBE_POSE_REPORT.md)。
+
+最新 PickCube 稳定保持修复：v5 位姿增量与 v6 关节绝对目标、真实40步保持示范、末尾训练窗口，以及现有权重8步/2步配对推理。结果、限制和新训练命令见 [PICKCUBE_STABILITY_REPORT.md](PICKCUBE_STABILITY_REPORT.md)，实验产物位于 `runs/pickcube-stability/`。

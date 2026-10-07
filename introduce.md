@@ -70,7 +70,7 @@ mkdir -p "$FLOW_RUN_ROOT"
 ```
 
 后续命令沿用这些变量。`FLOW_DATA` 指向真实训练数据，`FLOW_RUN_ROOT` 保存训练、日志和评估输出，数据可以放在实验目录外。
-新 PickCube 位姿动作数据已转换为 `.runtime/flow_dp3/PickCube-v1-pose-v4.h5`。复用时先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=pose-v4` 并执行上面的选择块；其数据路径即为该文件。旧4维数据只用于旧实验，不用于新7维配置。
+新 PickCube 保持示范使用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。复用时先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照使用 `pickcube_joint.yaml` 和 `pickcube-joint-hold-v6.h5`，state仍为28维，action为8维。旧实验恢复需使用原目录保存的配置。
 更换目录或文件名不会改变任务；已有 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
 本文命令显式传 `--env-id "$FLOW_TASK"`，任务不匹配时会报错。
 
@@ -126,7 +126,9 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 未填写 `--max-steps` 时按第1.2节任务表选择上限，不把其他任务也固定为200步。
 录制专家使用 `pd_joint_pos`，目标控制器按任务表选择。转换仅恢复初始场景，之后真实执行动作并重新判断最终成功。
-PickCube 的新 v4 接口保留专家的旋转示范，动作依次为 XYZ 平移增量、三维旋转增量、夹爪；旧 v1/v2 为4维平移动作。转换时必须重新采集实际执行产生的点云，不能把旧4维数据补成7维。
+PickCube 默认同时保存 `ee`（v5，7维末端位姿增量）与 `joint`（v6，8维关节绝对目标）两个分支，共用一次生成的原始专家轨迹。两者分别从相同初始状态真实回放、重新采集观测，到点后保持固定目标40步；只有两个分支均成功且保持稳定的源 episode 才收录。它们的动作步数可能不同，不能共用一条观测序列。`--hold-steps` 调整保持长度；`--control-mode ee` / `joint` 只录制一个分支，仍兼容完整控制器名称。其他四个任务沿用各自的单控制器。诊断另存 `task_metrics`，不输入模型。
+
+录制默认保存与最终训练动作对应的场景 MP4，目录为 `<输出名>-videos-full/{ee,joint}/`，文件名包含保存编号和 seed。录像包含恢复后的初始状态以及完整保持阶段，元信息记录相对视频路径、FPS和帧数；未收录轨迹的视频缓冲被丢弃。`--no-save-video` 关闭录像，`--video-dir` 指定新目录，`--video-fps` 调整播放帧率。生成点云的相机和crop保持原配置。
 原始轨迹成功不保证转换后仍成功，120条和2000次尝试只是预留余量，不保证最终获得100条；不足时会报错并保留已有结果。
 新录制使用独立文件名，不覆盖旧数据。
 
@@ -135,6 +137,7 @@ PickCube 的新 v4 接口保留专家的旋转示范，动作依次为 XYZ 平�
 | `<输出名>.raw.h5` / `.raw.json` | generate 模式生成的原始动作、环境状态和轨迹元信息 |
 | `FLOW_DATA` 指定的 `.h5` | 每条轨迹有 `T+1` 帧点云/状态和 `T` 个动作；状态和动作维度见第1.2节 |
 | 同名 `.json` | 任务契约、完整相机参数、源文件路径与指纹、成功数量与拒绝回放记录 |
+| `<输出名>-videos-full/{ee,joint}/*.mp4` | 默认同步录制的专家场景视频；每条保存轨迹对应一份 |
 
 `--generate` 模式在输出文件旁生成同名 `.raw.h5` / `.raw.json`；`--source` 模式复用已有原始文件，实际路径记录于 manifest，可视化回放按此路径查找。
 
@@ -168,6 +171,10 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 | `--max-attempts` | `100` | 正整数，如 `300`、`2000` | 生成阶段最多尝试次数；应不小于 generate，并预留失败余量 |
 | `--max-steps` | 按第1.2节任务表 | 整数且 ≥16，如 `200`、`400`、`500`；Draw不得超过300 | 环境单局步数上限及转换回放上限；专家超限按失败重试 |
 | `--num-points` | `512` | 128～4096的整数，如 `512`、`1024` | 当前预采样设置下，每帧 FPS 保留的点数 |
+| `--control-mode` | PickCube默认 `both`；其他任务默认原控制器 | `both`、`ee`、`joint`，以及完整控制器名称 | 双控制只支持PickCube；训练时选择ee/joint分支 |
+| `--save-video` / `--no-save-video` | 默认开启 | 无参数开关 | 同步录制最终训练轨迹的场景视频 |
+| `--video-dir` | `<输出名>-videos-full` | 新目录路径 | 分支视频分别存入ee/joint子目录；拒绝复用非空目录 |
+| `--video-fps` | 环境控制频率 | 正整数，如 `20` | 仅改变视频播放速度，不改变采样或控制频率 |
 | `--length-scale` | `1.0` | 有限正数，如 `1.0` | 相对 xyz 和距离统一除以尺度 L，须与 policy 配置相同 |
 | `--crop-min` | 按任务操作区预设 | 空格分隔的3个有限浮点数，如 `0.44 -0.23 -0.03` | 基座系 xyz 裁剪下界，单位米；逐轴小于 crop-max |
 | `--crop-max` | 按任务操作区预设 | 空格分隔的3个有限浮点数，如 `0.79 0.25 0.52` | 基座系 xyz 裁剪上界，单位米；裁剪后须有足够点数 |
@@ -189,11 +196,12 @@ Peg 还保留安装在 `camera_link` 上的128×128、90°腕部相机。
 DrawTriangle 的轮廓/画迹辨识与 FPS 漏点需通过录像和训练实验评估。
 
 修改相机、点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配模型。
-PickCube 新数据使用 v4 契约（7维位姿动作），四个其他任务继续使用 v3；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。
+PickCube 新数据使用 v5 契约（7维位姿保持）或 v6（8维关节绝对目标），四个其他任务继续使用 v3；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。v5/v6还记录真实动作范围和末尾采样规则：所有真实状态均可成为当前观测；位姿增量尾部填零机械臂动作并保持夹爪，绝对关节动作重复最终目标。
 历史 PickCube v1/v2 读取路径保留，继续使用4维平移动作；v1 模型还恢复旧128×128相机和旧范围。恢复旧实验必须沿用旧数据及训练目录保存的配置，旧权重不能直接切换成7维。
+历史 v4 的7维模型也保留原采样规则。当前 Pick 配置要求保持示范的新契约，v4恢复训练仍使用原配置。`evaluate.py --n-action-steps 2` 可直接比较旧模型的短动作块，不需要重训；`--save-trace` 保存逐步距离/速度/抓取诊断。完整实验与新训练命令见 [稳定保持报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
 
 生成或转换数量不足会报错并保留已有结果；检查 `.json` 的 `saved` / `rejected`，用新输出名补充采集。
-数据录制本身不保存 MP4；专家数据观测录像按第2.4节导出，训练策略的闭环录像在第4节生成。
+数据录制默认保存专家场景 MP4；额外的点云/状态面板录像按第2.4节导出，训练策略的闭环录像在第4节生成。
 
 ### 2.4 检查数据、点云和观测录像
 
@@ -218,6 +226,34 @@ python -B visual/export_videos.py \
 `--episodes 0` 是数据轨迹索引，可改为 `--episodes 0 1 2`；它不同于评估命令中表示局数的 `--episodes 20`。
 双图显示原 FPS 点云及矢量距离；新增任务没有 GOAL 字段，不显示虚构目标，同步视频展示 TCP XYZ。
 输出拒绝覆盖，重复导出换新路径。交互选点仍需要桌面和 Open3D，完整 PNG/MP4/交互参数见 [visual/README.md](visual/README.md)。
+双分支数据的两个可视化入口均支持 `--control-mode ee` / `joint`，默认ee。
+
+### 2.5 PickCube一次录制、分别选择控制方式
+
+初始化环境后，从项目根目录执行，示例路径须尚未存在：
+
+```bash
+python -B examples/baselines/flow_dp3/prepare_demos.py \
+    --env-id PickCube-v1 --generate 120 --count 100 --max-attempts 2000 \
+    --output .runtime/flow_dp3/pickcube-dual.h5
+
+python -B examples/baselines/flow_dp3/train.py \
+    --data .runtime/flow_dp3/pickcube-dual.h5 --control-mode ee \
+    --config examples/baselines/flow_dp3/configs/pickcube.yaml \
+    --output .runtime/flow_dp3/pickcube-dual-ee --wandb-mode disabled
+
+python -B examples/baselines/flow_dp3/train.py \
+    --data .runtime/flow_dp3/pickcube-dual.h5 --control-mode joint \
+    --config examples/baselines/flow_dp3/configs/pickcube.yaml \
+    --output .runtime/flow_dp3/pickcube-dual-joint --wandb-mode disabled
+
+python -B examples/baselines/flow_dp3/evaluate.py \
+    --checkpoint .runtime/flow_dp3/pickcube-dual-joint/best.pt --control-mode joint \
+    --episodes 20 --save-video --output .runtime/flow_dp3/pickcube-dual-joint/evaluation.json \
+    --wandb-mode disabled
+```
+
+两个训练命令可使用同一配置，显式控制参数会根据选中的v5/v6分支设置动作维度及契约要求，模型结构和训练设置沿用该配置。默认训练选ee；指定其他任务或旧数据时仍校验原接口。两个控制方式各自训练模型，推理不能把7维checkpoint强制改为8维；省略推理控制参数时自动跟随模型。恢复joint训练时继续传 `--control-mode joint`。测试产物和详细验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
 
 ## 3. 完整模型训练与恢复
 
@@ -287,6 +323,7 @@ export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.h5"
 | `--config` | `examples/baselines/flow_dp3/configs/pickcube.yaml` | 已存在且格式正确的 `.yaml` 路径 | 模型结构与训练设置；自定义时复制成新配置文件 |
 | `--env-id` | 从 HDF5 契约读取 | 第1.2节五个完整任务名之一 | 可选任务校验；显式指定须与数据匹配，不能强制切换任务 |
 | `--data` | 必填 | 已转换的训练 `.h5` 路径，如 `"$FLOW_DATA"` | 文件须真实存在，至少包含两条成功 episode |
+| `--control-mode` | 双分支默认ee；单分支沿用契约 | `ee`、`joint`或完整控制器名称 | 选择训练数据分支，自动设置PickCube v5/v6动作接口；推理同名参数仅核对checkpoint |
 | `--output` | 必填 | 可写目录，如 `"$FLOW_RUN_ROOT/full"` | 新训练目录须为空；恢复须是原 checkpoint 所在目录 |
 | `--device` | `cuda:0` | 只能填 `cpu` 或 `cuda:0` | 策略计算设备；本 PPU 实例使用 cuda:0，仿真和渲染仍用 CPU |
 | `--steps` | YAML `training.steps` | 正整数，如 `10000`、`30000` | 目标累计更新次数；恢复须大于已有步数，通常不超过调度总长度 |
@@ -406,7 +443,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | 字段 | 当前值 | 可填值 / 格式 | 意义及联动约束 |
 | --- | --- | --- | --- |
 | `state_dim` | Pick 28；Push/Stack/Peg 25；Draw 21 | 第1.2节任务对应的整数 | 可省略，由训练数据契约绑定；显式填写须与任务匹配 |
-| `action_dim` | 新 Pick/Stack/Peg 7；Push 4；Draw 3 | 第1.2节任务对应的整数 | Pick 正式/烟雾配置显式要求7维，拒绝旧4维数据；其他任务可由契约绑定，旧 Pick 恢复使用原配置 |
+| `action_dim` | Pick位姿/Stack/Peg 7；Pick关节8；Push4；Draw3 | 任务及控制器对应的整数 | Pick位姿配置显式要求7维、关节配置要求8维；恢复旧实验使用原配置 |
 | `horizon` | `16` | 正整数，如 `16`、`32` | 动作预测长度；须被 `2^(len(down_dims)-1)` 整除，当前3级结构须为4的倍数 |
 | `n_obs_steps` | `2` | 整数，1～horizon | 观测历史帧数；与网络条件维度相关 |
 | `n_action_steps` | `8` | 整数，1～`horizon-n_obs_steps+1`；当前1～15 | 每次执行的动作数，执行从预测索引 n_obs_steps-1 开始 |
@@ -435,6 +472,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 
 | 字段 | 当前值 | 可填值 / 格式 | 意义及限制 |
 | --- | --- | --- | --- |
+| `required_contract_version` | Pick位姿5；Pick关节6 | 可省略，正整数 | 新Pick配置拒绝没有匹配保持/采样契约的旧数据；旧保存配置可不含此项 |
 | `seed` | `42` | 非负整数，如 `42`、`123` | 训练随机流与 episode 划分种子 |
 | `batch_size` | `32` | 正整数，如 `8`、`16`、`32` | 每次更新的窗口数；CLI 可覆盖，恢复须保持原值 |
 | `steps` | `30000` | 正整数，如 `10000`、`30000` | 默认总更新数和学习率调度长度 |
@@ -448,7 +486,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | `checkpoint_every` | `100` | 正整数，如 `100`、`500` | 定期保存间隔，验证改善及末步也保存 |
 | `grad_clip` | `1.0` | 有限正数，如 `0.5`、`1.0` | 梯度范数裁剪阈值 |
 
-YAML 列表用方括号和逗号，例如 `betas: [0.95, 0.999]`。CLI 参数名使用连字符，YAML 字段名使用下划线。training 必须保留表中全部12个字段，不能添加脚本未支持的字段。
+YAML 列表用方括号和逗号，例如 `betas: [0.95, 0.999]`。CLI 参数名使用连字符，YAML 字段名使用下划线。training 必须保留原12个优化/划分字段，可增加上述契约版本约束，不能添加脚本未支持的字段。
 
 ## 6. W&B 参数与日志操作
 

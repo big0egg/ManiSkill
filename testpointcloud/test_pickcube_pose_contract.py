@@ -30,7 +30,9 @@ class PickCubePoseContractTests(unittest.TestCase):
     def test_saved_version_selects_controller_and_camera(self):
         for version, mode, dim in ((1, "pd_ee_delta_pos", 4),
                                    (2, "pd_ee_delta_pos", 4),
-                                   (4, "pd_ee_delta_pose", 7)):
+                                   (4, "pd_ee_delta_pose", 7),
+                                   (5, "pd_ee_delta_pose", 7),
+                                   (6, "pd_joint_pos", 8)):
             with self.subTest(version=version):
                 contract = self.contract(version)
                 config_from_contract(contract)
@@ -77,7 +79,7 @@ class PickCubePoseContractTests(unittest.TestCase):
         xyz = torch.randn(1, 2, 512, 3) * .1
         obs = {"pointcloud_distance": torch.cat((xyz, xyz.norm(dim=-1, keepdim=True)), dim=-1),
                "state": torch.zeros(1, 2, 28)}
-        for version in (1, 2, 4):
+        for version in (1, 2, 4, 5, 6):
             with self.subTest(version=version), tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
                 contract = self.contract(version)
                 config = PolicyConfig(horizon=4, n_action_steps=2, action_dim=contract["action_dim"],

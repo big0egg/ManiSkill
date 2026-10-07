@@ -22,6 +22,7 @@ policy:
   sigma_var: 0.0
   solver: consistency
 training:
+  required_contract_version: 5
   seed: 42
   batch_size: 2
   steps: 20

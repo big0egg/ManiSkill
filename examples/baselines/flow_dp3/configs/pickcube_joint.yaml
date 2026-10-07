@@ -1,6 +1,6 @@
 # 原 FlowDP3 的主干宽度与一致性参数。PickCube 半径采用几何实验候选 0.05/0.12m，成功率待新训练验证。
 policy:
-  action_dim: 7
+  action_dim: 8
   horizon: 16
   n_obs_steps: 2
   n_action_steps: 8
@@ -22,7 +22,7 @@ policy:
   sigma_var: 0.0
   solver: consistency
 training:
-  required_contract_version: 5
+  required_contract_version: 6
   seed: 42
   batch_size: 32
   steps: 30000

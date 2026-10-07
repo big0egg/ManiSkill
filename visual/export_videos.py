@@ -13,13 +13,14 @@ import h5py
 import numpy as np
 
 from dataset_io import DEFAULT_DATASET, ROOT, default_output, episode_names, load_episode, require_new, sha256
+from control_modes import CONTROL_CHOICES
 
 
-def inspect_dataset(dataset, near_radius):
-    names = episode_names(dataset)
+def inspect_dataset(dataset, near_radius, control_mode=None):
+    names = episode_names(dataset, control_mode)
     lengths, distances, near_counts, details = [], [], [], []
     for name in names:
-        ep = load_episode(dataset, name)
+        ep = load_episode(dataset, name, control_mode)
         d = ep.features[..., 3] * ep.scale
         near = np.sum(d <= near_radius, axis=1)
         norm_error = float(np.max(np.abs(np.linalg.norm(ep.features[..., :3], axis=-1) - ep.features[..., 3])))
@@ -38,6 +39,7 @@ def inspect_dataset(dataset, near_radius):
     near = np.concatenate(near_counts)
     return {'dataset': str(Path(dataset).resolve()), 'dataset_sha256': sha256(dataset),
             'env_id': ep.contract['env_id'], 'robot_uids': ep.contract['robot_uids'],
+            'control_mode': ep.contract['control_mode'],
             'episode_count': len(names), 'actions': sum(lengths), 'observations': sum(lengths) + len(names),
             'steps_min_median_max': [min(lengths), float(np.median(lengths)), max(lengths)],
             'finite_and_shapes_valid': True, 'near_radius_m': near_radius,
@@ -87,7 +89,9 @@ class Dashboard:
         lo, hi = field['qvel']; qvel = s[:, lo:hi]
         auxiliary = episode.tcp if episode.goals is None else np.column_stack((qpos[:, 7:9], np.linalg.norm(episode.tcp - episode.goals, axis=1)))
         curves = [qpos[:, :7], qvel[:, :7], auxiliary, episode.actions]
-        titles = ['Joint position (rad)', 'Joint velocity (rad/s)', 'TCP position XYZ (m)' if episode.goals is None else 'Finger positions / TCP-goal distance (m)', 'Saved action (normalized)']
+        action_title = ('Saved joint targets (rad) / gripper (normalized)' if episode.contract['control_mode'] == 'pd_joint_pos'
+                        else 'Saved action (normalized)')
+        titles = ['Joint position (rad)', 'Joint velocity (rad/s)', 'TCP position XYZ (m)' if episode.goals is None else 'Finger positions / TCP-goal distance (m)', action_title]
         self.cursors = []
         for ax, data, title in zip(self.curve_axes, curves, titles):
             self.style(ax)
@@ -229,18 +233,19 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
 
 
 def run(args):
+    control_mode = getattr(args, 'control_mode', None)
     output = args.output or default_output(args.dataset)
     report_path = require_new(output / ('inspection.json' if args.inspect_only else 'quality.json'))
-    report = inspect_dataset(args.dataset, args.near_radius)
+    report = inspect_dataset(args.dataset, args.near_radius, control_mode)
     if args.inspect_only:
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
         print(f'数据检查完成：{report_path}；{report["episode_count"]} 条轨迹')
         return
-    names = episode_names(args.dataset)
+    names = episode_names(args.dataset, control_mode)
     if args.all:
         selected = names
     elif args.episodes:
-        selected = [load_episode(args.dataset, name).name for name in args.episodes]
+        selected = [load_episode(args.dataset, name, control_mode).name for name in args.episodes]
     else:
         indices = [0, 2, 54, 80, 99] if len(names) >= 100 else list(range(min(5, len(names))))
         selected = [names[i] for i in indices]
@@ -260,7 +265,7 @@ def run(args):
     raw_episodes = {e['episode_id']: e for e in raw_meta['episodes']}
     sys.path.insert(0, str(ROOT / 'examples/baselines/flow_dp3'))
     from obs_adapter import config_from_contract, make_env
-    contract = load_episode(args.dataset, selected[0]).contract
+    contract = load_episode(args.dataset, selected[0], control_mode).contract
     config_from_contract(contract)
     os.environ.setdefault('VK_ICD_FILENAMES', '/usr/share/vulkan/icd.d/lvp_icd.json')
     os.environ.setdefault('MPLCONFIGDIR', str(ROOT / '.runtime/matplotlib'))
@@ -275,7 +280,7 @@ def run(args):
     try:
         with h5py.File(source, 'r') as raw:
             for name in selected:
-                ep = load_episode(args.dataset, name)
+                ep = load_episode(args.dataset, name, control_mode)
                 if ep.contract != contract:
                     raise ValueError(f'{name}: 观测契约不同')
                 result = replay_episode(ep, env, raw, raw_episodes, args, destinations[name])
@@ -300,6 +305,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=Path, default=DEFAULT_DATASET)
+    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='选择ee/joint分支；默认ee')
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--episodes', nargs='+', help='索引或 episode 完整名称；默认5条代表轨迹')
     selection.add_argument('--all', action='store_true', help='导出训练集全部轨迹，而非全部原始轨迹')
