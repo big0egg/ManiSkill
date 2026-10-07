@@ -222,6 +222,9 @@ def prepare(args):
     if temporary.exists():
         raise FileExistsError(f"上次未完成输出：{temporary}；检查后使用新的输出路径")
     save_video = getattr(args, "save_video", True)
+    video_every = getattr(args, "video_every", 10)
+    if type(video_every) is not int or video_every < 1:
+        raise ValueError("video-every 必须为正整数")
     if getattr(args, "video_dir", None) and not save_video:
         raise ValueError("--video-dir 需要开启录像")
     if getattr(args, "video_fps", None) is not None and args.video_fps < 1:
@@ -259,6 +262,9 @@ def prepare(args):
     attempts, rejected = 0, []
     saved = {key: [] for key in modes}
     targets, records = {}, {}
+    # Keep the trigger constant throughout each source episode and both branches.
+    # Unselected episodes skip RecordEpisode.capture_image(), not just MP4 encoding.
+    video_selection = {"enabled": False}
     started = time.monotonic()
     with ExitStack() as stack:
         original = make_env("pd_joint_pos", visual=False, max_episode_steps=args.max_steps, env_id=env_id)
@@ -271,6 +277,7 @@ def prepare(args):
                 try:
                     env = RecordEpisode(env, output_dir=str(video_dir / key), save_trajectory=False,
                                         save_video=True, save_on_reset=False, info_on_video=False,
+                                        save_video_trigger=lambda _step: video_selection["enabled"],
                                         video_fps=getattr(args, "video_fps", None) or env.unwrapped.control_freq)
                 except Exception:
                     env.close()
@@ -298,6 +305,8 @@ def prepare(args):
                 if not len(traj["actions"]):
                     rejected.append({"source_episode": identifier, "reason": "empty_actions"})
                     continue
+                record_this_episode = save_video and count % video_every == 0
+                video_selection["enabled"] = record_this_episode
                 details, failures = {}, {}
                 for key, target in targets.items():
                     detail, failure = replay_demo(target, original, traj, episode, contracts[key], hold_steps)
@@ -313,7 +322,8 @@ def prepare(args):
                     continue
                 for key, target in targets.items():
                     detail = details[key]
-                    if save_video:
+                    detail["video_recorded"] = record_this_episode
+                    if record_this_episode:
                         name = f"episode_{count:05d}_seed_{detail['seed']}"
                         record = records[key]
                         frames = len(record.render_images)
@@ -330,7 +340,9 @@ def prepare(args):
                       "source_json_sha256": file_hash(source.with_suffix(".json")),
                       "source_type": metadata.get("source_type", "unknown"), "hold_steps": hold_steps,
                       "attempted": attempts, "saved": count, "rejected": rejected,
-                      "save_video": save_video, "elapsed_seconds": time.monotonic() - started}
+                      "save_video": save_video, "video_every": video_every,
+                      "video_sampling": "saved_episode_index_mod_interval_eq_zero",
+                      "elapsed_seconds": time.monotonic() - started}
             branches = {}
             for key, root in roots.items():
                 branch = {**common, "contract": contracts[key], "episodes": saved[key]}
@@ -364,7 +376,9 @@ def main():
     parser.add_argument("--control-mode", choices=("both",) + CONTROL_CHOICES,
                         help="PickCube默认both，保存同源ee/joint双分支；也可单独录制ee或joint，其他任务默认原控制器")
     parser.add_argument("--save-video", action=argparse.BooleanOptionalAction, default=True,
-                        help="默认保存与最终训练轨迹对应的场景MP4；--no-save-video关闭")
+                        help="默认每10条成功示范抽1条完整场景MP4；--no-save-video关闭")
+    parser.add_argument("--video-every", type=int, default=10,
+                        help="每N条成功示范录制1条，默认10：第1/11/21条；1表示每条，两分支使用同一抽样编号")
     parser.add_argument("--video-dir", type=Path, help="默认 <数据集名称>-videos-full/{ee,joint}")
     parser.add_argument("--video-fps", type=int, help="默认环境控制频率；仅影响视频播放速度")
     parser.add_argument("--hold-steps", type=int, help="PickCube到点后真实保持固定目标，默认40步；其他任务默认0")
@@ -374,6 +388,8 @@ def main():
     parser.add_argument("--crop-max", type=float, nargs=3, default=None,
                         help="基座系 xyz 上界（米），默认按任务预设操作区")
     args = parser.parse_args()
+    if args.video_every < 1:
+        parser.error("video-every >= 1")
     if args.hold_steps is not None and args.hold_steps < 0:
         parser.error("hold-steps >= 0")
     if args.count < 0 or (args.max_steps is not None and args.max_steps < 16) or args.max_attempts < 1 or (args.generate is not None and args.generate < 1):

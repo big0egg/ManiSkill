@@ -1,6 +1,6 @@
 # Flow DP3 数据观测可视化
 
-PickCube 新录制支持同一 HDF5 内的 `ee` / `joint` 双分支。`pointcloud.py` 和 `export_videos.py` 均可使用 `--control-mode ee` 或 `--control-mode joint`，默认ee；旧单分支文件继续沿用其契约。专家录制已默认生成纯场景 MP4，位于 `<数据集名称>-videos-full/{ee,joint}/`，本工具仍用于额外的点云/状态面板。使用与验证见 [双控制录制报告](../testpointcloud/DUAL_CONTROL_REPORT.md)。
+PickCube 新录制支持同一 HDF5 内的 `ee` / `joint` 双分支。`pointcloud.py` 和 `export_videos.py` 均可使用 `--control-mode ee` 或 `--control-mode joint`，默认ee；旧单分支文件继续沿用其契约。专家录制默认每10条成功示范抽1条完整场景 MP4，第1/11/21……条录像，位于 `<数据集名称>-videos-full/{ee,joint}/`；`prepare_demos.py --video-every 1` 恢复每条录像。未录视频的轨迹仍有完整训练数据，本工具可以另行导出其点云/状态面板。使用与验证见 [双控制录制报告](../testpointcloud/DUAL_CONTROL_REPORT.md)。
 
 所有工具只读输入 HDF5，不修改训练代码、数据或 checkpoint。默认数据为
 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`，可通过 `--dataset` 指定其他文件。

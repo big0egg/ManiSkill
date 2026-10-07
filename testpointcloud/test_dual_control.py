@@ -24,6 +24,22 @@ from prepare_demos import prepare, recording_modes
 
 class FakeEnv(gym.Env):
     control_freq = 20
+    num_envs = 1
+    def __init__(self):
+        self.render_count = 0
+        self.step_count = 0
+
+    def reset(self, **kwargs):
+        return {}, {"reconfigure": False}
+
+    def step(self, action):
+        self.step_count += 1
+        return {}, 0., False, False, {}
+
+    def render(self):
+        self.render_count += 1
+        return np.full((8, 8, 3), self.render_count, np.uint8)
+
     def close(self):
         pass
 
@@ -161,6 +177,99 @@ class DualControlTests(unittest.TestCase):
                     self.assertEqual(list(stream[mode]), ["episode_00000"])
                     self.assertEqual(json.loads(stream[f"{mode}/episode_00000"].attrs["metadata"])["source_episode"], 1)
             self.assertFalse(output.with_suffix(".partial.h5").exists())
+
+    def test_video_sampling_uses_saved_count_and_really_skips_rendering(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
+            directory = Path(directory)
+            source, output = directory / "raw.h5", directory / "sampled.h5"
+            episodes = [{"episode_id": i, "control_mode": "pd_joint_pos", "reset_kwargs": {"seed": i}}
+                        for i in range(13)]
+            source.with_suffix(".json").write_text(json.dumps({
+                "env_info": {"env_id": "PickCube-v1", "env_kwargs": {}}, "episodes": episodes}))
+            with h5py.File(source, "w") as stream:
+                for i in range(13):
+                    stream.create_group(f"traj_{i}")["actions"] = np.zeros((2, 8))
+            environments = []
+            def make(*a, **kw):
+                env = FakeEnv()
+                environments.append(env)
+                return env
+            def replay(target, original, traj, episode, contract, hold_steps):
+                target.env.reset()
+                target.actions = [np.zeros(contract["action_dim"], np.float32)] * 2
+                for action in target.actions:
+                    target.env.step(action)
+                target.observations = [{"state": np.zeros(28, np.float32),
+                                        "pointcloud_distance": np.zeros((128, 4), np.float32)}] * 3
+                target.task_metrics = []
+                if episode["episode_id"] in (0, 3) and contract["version"] == 6:
+                    return None, {"success_end": False}
+                return {"source_episode": episode["episode_id"], "seed": episode["episode_id"],
+                        "success_end": True, "steps": 2}, None
+            videos = []
+            def encode(images, output_dir, video_name, **kwargs):
+                videos.append((video_name, len(images)))
+                (Path(output_dir) / (video_name + ".mp4")).write_bytes(b"test encoder")
+            args = SimpleNamespace(output=output, generate=None, source=source, env_id=None,
+                                   control_mode=None, hold_steps=0, max_steps=None, num_points=128,
+                                   length_scale=1., crop_min=None, crop_max=None, count=11, save_video=True)
+            with patch("prepare_demos.make_env", side_effect=make), \
+                    patch("prepare_demos.validate_env"), patch("prepare_demos.replay_demo", side_effect=replay), \
+                    patch("mani_skill.utils.wrappers.record.images_to_video", side_effect=encode):
+                prepare(args)
+            self.assertEqual(videos, [("episode_00000_seed_1", 3)] * 2 +
+                                    [("episode_00010_seed_12", 3)] * 2)
+            for env in environments[1:]:
+                self.assertEqual(env.step_count, 26)
+                self.assertEqual(env.render_count, 9)  # failed selected + two accepted selected; others zero
+            with h5py.File(output, "r") as stream:
+                manifest = json.loads(stream.attrs["manifest"])
+                self.assertEqual(manifest["video_every"], 10)
+                self.assertEqual(manifest["saved"], 11)
+                for mode in ("ee", "joint"):
+                    self.assertEqual(len(stream[mode]), 11)
+                    recorded = []
+                    for name in sorted(stream[mode]):
+                        meta = json.loads(stream[f"{mode}/{name}"].attrs["metadata"])
+                        if meta["video_recorded"]:
+                            recorded.append(name)
+                            self.assertEqual(meta["video_frames"], 3)
+                        else:
+                            self.assertNotIn("video_path", meta)
+                    self.assertEqual(recorded, ["episode_00000", "episode_00010"])
+
+    def test_video_trigger_can_switch_without_leaking_frames(self):
+        from mani_skill.utils.wrappers.record import RecordEpisode
+        with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
+            gate = {"enabled": False}
+            env = FakeEnv()
+            record = RecordEpisode(env, directory, save_trajectory=False, save_video=True,
+                                   save_on_reset=False, save_video_trigger=lambda step: gate["enabled"])
+            try:
+                record.reset()
+                record.step(np.zeros(8))
+                self.assertEqual(env.render_count, 0)
+                self.assertEqual(record.render_images, [])
+                gate["enabled"] = True
+                record.reset()
+                for _ in range(2):
+                    record.step(np.zeros(8))
+                self.assertEqual(len(record.render_images), 3)
+                record.flush_video(save=False)
+                gate["enabled"] = False
+                record.reset()
+                record.step(np.zeros(8))
+                self.assertEqual(env.render_count, 3)
+                self.assertEqual(record.render_images, [])
+            finally:
+                record.close()
+
+    def test_invalid_video_interval_rejected_before_generation(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
+            for interval in (0, -1, 1.5):
+                with self.assertRaisesRegex(ValueError, "video-every"):
+                    prepare(SimpleNamespace(output=Path(directory) / "data.h5", save_video=True,
+                                            video_every=interval))
 
 
 if __name__ == "__main__":

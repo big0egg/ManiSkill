@@ -21,6 +21,7 @@ def validate(args):
         assert stream.attrs["layout"] == DUAL_LAYOUT
         manifest = json.loads(stream.attrs["manifest"])
         result["paired_source_episodes"] = manifest["paired_source_episodes"]
+        result["video_every"] = manifest.get("video_every", 1)
         for mode, dimension in (("ee", 7), ("joint", 8)):
             entries = []
             reference = getattr(args, "reference_" + mode)
@@ -29,26 +30,34 @@ def validate(args):
                 for name in episode_names(reference):
                     ep = load_episode(reference, name)
                     references[ep.metadata["source_episode"]] = ep
-            for name in episode_names(args.dataset, mode):
+            video_paths = []
+            for index, name in enumerate(episode_names(args.dataset, mode)):
                 ep = load_episode(args.dataset, name, mode)
                 assert ep.actions.shape[1] == dimension
                 assert ep.states.shape[1] == 28 and ep.features.shape[1:] == (512, 4)
                 metrics = stream[f"{mode}/{name}/task_metrics"]
                 assert np.all(metrics["success"][-ep.metadata["hold_steps"]:])
                 assert ep.metadata["success_end"] and ep.metadata["hold_stable"]
-                video = args.dataset.parent / ep.metadata["video_path"]
-                count, dimensions = 0, None
-                with imageio.get_reader(str(video)) as reader:
-                    fps = reader.get_meta_data()["fps"]
-                    for frame in reader:
-                        assert frame.std() > 1, "empty/black video frame"
-                        dimensions = list(frame.shape)
-                        count += 1
-                assert count == len(ep.states) == ep.metadata["video_frames"]
-                assert abs(fps - ep.metadata["video_fps"]) < 1e-5
+                recorded = manifest.get("save_video", True) and index % result["video_every"] == 0
+                assert ep.metadata.get("video_recorded", recorded) == recorded
                 entry = {"episode": name, "source_episode": ep.metadata["source_episode"],
-                         "steps": len(ep.actions), "video": str(video.resolve()), "frames": count,
-                         "fps": fps, "frame_shape": dimensions, "hold_steps": ep.metadata["hold_steps"]}
+                         "steps": len(ep.actions), "video_recorded": recorded,
+                         "hold_steps": ep.metadata["hold_steps"]}
+                if recorded:
+                    video = args.dataset.parent / ep.metadata["video_path"]
+                    count, dimensions = 0, None
+                    with imageio.get_reader(str(video)) as reader:
+                        fps = reader.get_meta_data()["fps"]
+                        for frame in reader:
+                            assert frame.std() > 1, "empty/black video frame"
+                            dimensions = list(frame.shape)
+                            count += 1
+                    assert count == len(ep.states) == ep.metadata["video_frames"]
+                    assert abs(fps - ep.metadata["video_fps"]) < 1e-5
+                    entry.update(video=str(video.resolve()), frames=count, fps=fps, frame_shape=dimensions)
+                    video_paths.append(video.resolve())
+                else:
+                    assert not {"video_path", "video_frames", "video_fps"} & set(ep.metadata)
                 if reference:
                     old = references[ep.metadata["source_episode"]]
                     errors = {key: float(np.max(np.abs(current - previous)))
@@ -58,6 +67,8 @@ def validate(args):
                     assert max(errors.values()) <= 1e-4, errors
                     entry["reference_max_errors"] = errors
                 entries.append(entry)
+            if video_paths:
+                assert set(video_paths[0].parent.glob("*.mp4")) == set(video_paths)
             result["branches"][mode] = entries
         assert episode_names(args.dataset, "ee") == episode_names(args.dataset, "joint")
         for name in episode_names(args.dataset, "ee"):
@@ -68,7 +79,7 @@ def validate(args):
     result["all_checks_passed"] = True
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({"all_checks_passed": True, "episodes_per_branch": len(entries),
-                      "decoded_videos": sum(len(v) for v in result["branches"].values())}))
+                      "decoded_videos": sum(ep["video_recorded"] for v in result["branches"].values() for ep in v)}))
 
 
 if __name__ == "__main__":

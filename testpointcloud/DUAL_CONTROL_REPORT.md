@@ -1,6 +1,6 @@
 # PickCube双控制数据与专家场景录像
 
-本次按授权修改录制、数据读取、训练、推理和可视化入口。PickCube默认一次生成原始专家轨迹，再分别真实回放末端控制与Joint控制，在同一个HDF5中保存两个分支。每个分支独立保存实际观测、动作和40步稳定保持结果，并同步生成纯场景MP4。
+本次按授权修改录制、数据读取、训练、推理和可视化入口。PickCube默认一次生成原始专家轨迹，再分别真实回放末端控制与Joint控制，在同一个HDF5中保存两个分支。每个分支独立保存实际观测、动作和40步稳定保持结果；最新默认按成功保存编号每10条抽1条完整场景MP4。
 
 ## 数据结构与选择参数
 
@@ -26,13 +26,13 @@ pickcube-dual-videos-full/
 
 两种控制可能产生不同步数，不能把两份动作挂到同一条观测上。回放仅恢复原始初始状态，随后执行真实动作；源episode在两个分支均最终成功、且整个保持阶段成功时才收录。失败时两份视频缓冲都丢弃。分支内保存各自契约与manifest，根manifest记录配对源ID和拒绝原因。同名episode对应同一个源ID，因此同一划分比例和seed下训练/验证划分一致，归一化只统计所选分支的训练episode。
 
-录制 `--control-mode` 默认对PickCube使用 `both`，也可填 `ee` / `joint` 单独录制。其他四任务保留原控制器，默认也同步保存场景录像。完整控制器名称继续支持。`--save-video` 默认开启，`--no-save-video` 关闭；`--video-dir` 指定新视频目录，`--video-fps` 默认为控制频率20Hz，仅影响播放速度。视频包含真实初始状态和每一步执行结果，共T+1帧，元信息保存相对于HDF5目录的路径、帧率及帧数。使用与策略 `videos-full` 相同的RecordEpisode场景录像方式，传感器相机和crop不变。
+录制 `--control-mode` 默认对PickCube使用 `both`，也可填 `ee` / `joint` 单独录制。其他四任务保留原控制器，使用同一录像抽样规则。完整控制器名称继续支持。`--save-video` 默认开启抽样录像，`--video-every` 默认10：成功保存编号0/10/20……（第1/11/21条）录制，两个分支对应相同源轨迹。失败不占名额，选中但失败的录像缓冲被丢弃；未选中轨迹通过RecordEpisode触发器直接跳过capture_image，无录像渲染或编码，所有训练观测与动作仍逐步保存。每条元信息增加 `video_recorded`；只有选中轨迹带视频路径/帧数/FPS。manifest记录 `video_every` 和抽样规则。`--video-every 1` 恢复每条录像，`--no-save-video` 完全关闭；`--video-dir` 指定新目录，`--video-fps` 默认为控制频率20Hz，仅影响播放速度。抽样视频包含真实初始状态和每一步执行结果，共T+1帧，使用与策略 `videos-full` 相同的场景录像方式，传感器相机和crop不变。
 
 训练 `--control-mode ee/joint` 选择分支；两个命令可以使用同一个 `pickcube.yaml` 或小模型配置。显式控制参数自动匹配v5/v6的7/8维动作接口，模型宽度、SA半径和优化器设置沿用配置。默认双分支训练选择ee。单分支历史数据、旧checkpoint继续按原契约加载；旧数据不会因此获得保持示范。推理默认自动跟随checkpoint，显式控制参数仅校验一致性；7维与8维仍需分别训练，错误搭配会在创建环境前拒绝。
 
 Joint分支也继续读取实际TCP，计算基座坐标差 `point_base - tcp_base` 及其模长。state仍为关节位置9、关节速度9、TCP位姿7、目标位置3，共28维；点云仍为512×4。目标坐标来源、相机、crop、FPS和SA半径均沿用现有接口。
 
-## 小批量验证
+## 此前全量录像的小批量验证
 
 全部实验产物位于 [runs/dual-control](runs/dual-control)。本次使用已有原始专家文件 `.runtime/flow_dp3/PickCube-v1-first-v1.raw.h5`，真实回放并收录源ID 0～4共5条配对示范。
 
@@ -55,12 +55,26 @@ Joint分支也继续读取实际TCP，计算基座坐标差 `point_base - tcp_ba
 
 专家样例：[末端控制](runs/dual-control/pickcube-dual-videos-full/ee/episode_00000_seed_0.mp4)、[Joint控制](runs/dual-control/pickcube-dual-videos-full/joint/episode_00000_seed_0.mp4)。两份都是与最终训练数据对应的场景录像。
 
+## 每10条抽1条录像的验证
+
+按后续授权，专家录像默认改为 `--video-every 10`；实现使用RecordEpisode的录像触发器，在整条源episode及两个分支执行期间保持同一个选择状态，未选中轨迹不调用capture_image。失败时丢弃录像缓存，继续以成功保存编号决定下一条是否录制。此改动只影响新启动的录制进程，已运行的进程不会自动切换；推理和额外面板导出的录像规则不变。
+
+实验程序沿用现有测试和核验脚本，没有新增独立实验程序。产物全部位于 [runs/video-sampling](runs/video-sampling)：独立生成12条原始专家示范，真实回放收录前11条配对示范。
+
+- 两分支均完整保存11条，EE共1248个动作、Joint共1245个动作，逐步点云/state和40步保持全部保留。
+- 两分支只在保存编号0、10（第1、11条）生成MP4，共4份；每份完整包含T+1帧观测，帧数分别115、120，合计470帧，全部完整解码通过。其余9条仍有完整训练数据，元信息为 `video_recorded=false` 且不带视频路径。
+- 与此前100条保持数据中的对应轨迹比较，全部11条的动作、state、点云特征逐元素最大误差均为0。
+- 28项相关回归测试通过，包括失败不占收录编号、两个分支对应同一抽样编号、未选中轨迹实际不调用录像渲染、触发器切换不混入缓存、非法间隔拒绝及旧数据/契约兼容。旧的5条全量录像数据也通过更新后的核验脚本。
+- 回放阶段耗时223.9秒，平均20.4秒/配对示范；此前全量录像5条耗时137.4秒，平均27.5秒。平均耗时粗略减少约26%，两次样本和运行负载不同，此比较不是严格配对测速。
+
+记录：[回放日志](runs/video-sampling/record.log)、[视频与逐元素核验](runs/video-sampling/validation.json)、[回归测试](runs/video-sampling/tests-regression.log)、[旧数据核验](runs/video-sampling/legacy-validation.json)。第11条样例：[EE](runs/video-sampling/pickcube-dual-videos-full/ee/episode_00010_seed_10.mp4)、[Joint](runs/video-sampling/pickcube-dual-videos-full/joint/episode_00010_seed_10.mp4)。
+
 ## 使用命令
 
 先按 [introduce.md第1.1节](../introduce.md) 初始化SDK、虚拟环境、源码路径、资源目录及软件Vulkan。以下从项目根目录执行，正式输出路径必须是新路径。
 
 ```bash
-# PickCube默认双分支、自动专家录像。
+# PickCube默认双分支，每10条成功示范抽1条完整录像。
 python -B examples/baselines/flow_dp3/prepare_demos.py \
   --env-id PickCube-v1 --generate 120 --count 100 --max-attempts 2000 \
   --output .runtime/flow_dp3/pickcube-dual.h5

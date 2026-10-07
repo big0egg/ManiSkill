@@ -236,7 +236,7 @@ FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环�
 
 Stack实验录制显式使用`robot_uids="panda"`；任务原有默认机器人`panda_wristcam`保持不变，其`hand_camera`也保留。默认机器人拼接两台相机时，点数分布不能直接套用单相机实验表。
 
-新录制的 PickCube 默认在同一 HDF5 中保存 `ee`（v5，7维）与 `joint`（v6，8维）两个分支；每个分支真实执行自己的动作、重新采集观测，并在到点后稳定保持40步。只有两个分支均成功的同源示范才保留，训练/验证按相同 episode 划分。录制默认同步生成 `<数据集名称>-videos-full/{ee,joint}/*.mp4`，可用 `--no-save-video` 关闭。训练使用 `--control-mode ee` 或 `--control-mode joint` 选择分支，并自动设置动作维度、范围与尾部填充；推理默认跟随 checkpoint，同名参数用于核对。两者 state 均为28维，点云仍使用实际 TCP 计算512×4矢量距离。使用说明与验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
+新录制的 PickCube 默认在同一 HDF5 中保存 `ee`（v5，7维）与 `joint`（v6，8维）两个分支；每个分支真实执行自己的动作、重新采集观测，并在到点后稳定保持40步。只有两个分支均成功的同源示范才保留，训练/验证按相同 episode 划分。录制默认每10条成功示范抽1条完整录像，即第1、11、21……条，两个分支使用相同编号，视频位于 `<数据集名称>-videos-full/{ee,joint}/*.mp4`。未选中轨迹跳过录像画面渲染和编码，训练数据全部逐步保存；`--video-every 1` 恢复每条录像，`--no-save-video` 完全关闭。训练使用 `--control-mode ee` 或 `--control-mode joint` 选择分支，并自动设置动作维度、范围与尾部填充；推理默认跟随 checkpoint，同名参数用于核对。两者 state 均为28维，点云仍使用实际 TCP 计算512×4矢量距离。使用说明与验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
 
 已有单分支 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`、`pickcube-joint-hold-v6.h5` 可以继续使用。旧 v1/v2/v4 数据和 checkpoint 按保存的控制器、相机和采样规则加载，恢复旧训练使用原目录的配置。稳定保持修复与此前实验见 [稳定保持实验报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
 

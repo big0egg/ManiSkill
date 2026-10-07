@@ -577,7 +577,7 @@ crop 优先覆盖操作物体与末端活动区域，不要求保留机械臂所
 
 当前策略配置 `n_obs_steps=2`、`horizon=16`、`n_action_steps=8`：批大小为 B 时，条件输入是 `state: (B,2,28)` 与 `pointcloud_distance: (B,2,512,4)`；动作维度D为7或8，预测 `(B,16,D)`，执行 `(B,8,D)`。一条轨迹保存 `action: (T,D)`、`state: (T+1,28)`、`pointcloud_distance: (T+1,512,4)`。v5/v6允许包括terminal在内的每个真实状态成为当前观测，动作尾部按控制类型填充；额外 `task_metrics` 只用于核验，不输入模型。目标位置来自环境 `extra.goal_pos`，转到基座坐标进入state最后3维；目标标记在传感器观测中隐藏。稳定保持修复见 [稳定保持报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
 
-PickCube 最新录制默认在同一文件内保存 `ee` / `joint` 两个分支，分别对应v5/v6契约和各自的实际观测序列；训练通过 `--control-mode ee/joint` 选择，推理默认读取checkpoint中的控制器。Joint动作仍使用实际TCP计算矢量距离，保留28维state和512×4点云。每条收录轨迹同步生成场景MP4。数据结构、命令及验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
+PickCube 最新录制默认在同一文件内保存 `ee` / `joint` 两个分支，分别对应v5/v6契约和各自的实际观测序列；训练通过 `--control-mode ee/joint` 选择，推理默认读取checkpoint中的控制器。Joint动作仍使用实际TCP计算矢量距离，保留28维state和512×4点云。场景MP4默认每10条成功示范抽1条，即第1/11/21条，两分支使用相同编号；未选中轨迹跳过录像渲染，所有训练观测和动作仍完整保存。`--video-every 1` 恢复每条录像。数据结构、命令及验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
 
 五个相机预设任务可复用点云处理接口，**不能据此认为五个任务都已获得可训练的 28 维状态接口**。例如 PushCube 的纯视觉 `extra` 不提供 `goal_pos`，PandaStick 本体是 7 维关节位置 / 速度，PegInsertionSide 的策略动作是 7 维；它们需要各自的任务状态与动作适配。PushT 当前没有上述五任务的 crop 预设。
 
