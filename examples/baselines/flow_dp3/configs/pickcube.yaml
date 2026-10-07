@@ -1,10 +1,10 @@
-# 原 FlowDP3 的主干宽度与一致性参数。半径是新任务初始候选，需要后续实验调优。
+# 原 FlowDP3 的主干宽度与一致性参数。PickCube 半径采用几何实验候选 0.05/0.12m，成功率待新训练验证。
 policy:
   horizon: 16
   n_obs_steps: 2
   n_action_steps: 8
-  radius1_m: 0.10
-  radius2_m: 0.20
+  radius1_m: 0.05
+  radius2_m: 0.12
   length_scale: 1.0
   down_dims: [512, 1024, 2048]
   diffusion_step_embed_dim: 128

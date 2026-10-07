@@ -283,7 +283,7 @@ DP 的 `diffusion_policy/evaluate.py` 是训练入口调用的辅助函数，当
 | `alpha` | `1e-5` | 保持 | 当前附加损失权重，不可从 DP 噪声 MSE 推导 |
 | `noise_scale` | 1.0 | 保持 | 初始高斯噪声尺度 |
 | `sigma_var` | 0.0 | 保持 | 关闭积分中的附加随机扰动；初始动作噪声仍随机 |
-| `radius1_m` / `radius2_m` | 0.10 / 0.20 米 | 保持作为起点 | 关系点云编码器参数；没有 DP 对应值，后续单独调优 |
+| `radius1_m` / `radius2_m` | PickCube 0.05 / 0.12 米 | 新训练采用当前值 | 关系点云编码器参数；依据 [半径实验](testpointcloud/SA_RADIUS_REPORT.md) 调整，成功率待验证；其他任务配置仍为 0.10 / 0.20 米 |
 
 来源：[当前 FM 配置](examples/baselines/flow_dp3/configs/pickcube.yaml) 和 [策略实现](examples/baselines/flow_dp3/policy.py)。本项目训练目标包含分段一致性及双时刻项，不能把它等同于一个只预测噪声的 DDPM，也不应在这份文档中改成另一种 FM 损失。
 

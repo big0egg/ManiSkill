@@ -3,6 +3,9 @@
 另外四个任务的推荐参数、点数分布和限制见
 [MULTI_TASK_REPORT.md](MULTI_TASK_REPORT.md)。以下部分是 PickCube 的较大样本实验。
 
+PickCube 的 SA1/SA2 半径扫描、512/1024 点与中心数对照见
+[SA_RADIUS_REPORT.md](SA_RADIUS_REPORT.md)，包含 593 帧、126 个配置的配对结果。
+
 所有实验程序、缓存、录制数据、统计和图片均在此目录内。本报告记录相机筛选阶段；
 用户确认后已将推荐参数正式接入任务与FlowDP3流程，接入及验证见 [INTEGRATION.md](INTEGRATION.md)。
 

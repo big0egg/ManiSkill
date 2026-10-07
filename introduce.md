@@ -232,7 +232,7 @@ python -B examples/baselines/flow_dp3/train.py \
     --config "$FLOW_CONFIG" \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
-    --batch-size 32 --steps 30000 \
+    --batch-size 32 --steps 100000 \
     --wandb-mode online --wandb-project manskill \
     --wandb-name "${FLOW_RUN_ROOT##*/}-full" --wandb-log-every 10
 ```
@@ -396,7 +396,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 
 ## 5. YAML 参数：可以填什么
 
-`--config` 使用的 YAML 顶层为 `policy` 和 `training`。五份正式配置共享下表网络与训练起点，任务维度按第1.2节填写；
+`--config` 使用的 YAML 顶层为 `policy` 和 `training`。五份正式配置共享下表网络与训练起点，任务维度及半径按表中任务差异填写；
 烟雾配置采用第3.5节的小模型设置。“可填值”是格式及有效范围，不保证所有组合都有相同性能。
 改变配置时开始新的训练，恢复原运行保持原配置。
 
@@ -409,7 +409,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | `horizon` | `16` | 正整数，如 `16`、`32` | 动作预测长度；须被 `2^(len(down_dims)-1)` 整除，当前3级结构须为4的倍数 |
 | `n_obs_steps` | `2` | 整数，1～horizon | 观测历史帧数；与网络条件维度相关 |
 | `n_action_steps` | `8` | 整数，1～`horizon-n_obs_steps+1`；当前1～15 | 每次执行的动作数，执行从预测索引 n_obs_steps-1 开始 |
-| `radius1_m` / `radius2_m` | `0.10` / `0.20` | 有限正数，单位米 | 两级点云邻域半径；内部与点云一起除以 length_scale |
+| `radius1_m` / `radius2_m` | Pick / 策略缺省 `0.05` / `0.12`；其他任务配置 `0.10` / `0.20` | 有限正数，单位米 | 两级点云邻域半径；内部与点云一起除以 length_scale；新半径可复用点云数据，旧 checkpoint 仍读取保存值 |
 | `length_scale` | `1.0` | 有限正数 | 必须等于数据采集 length-scale |
 | `down_dims` | `[512,1024,2048]` | 至少2项的正整数列表，如 `[512, 1024, 2048]` | U-Net 通道宽度；所有项可被 n_groups 整除，第一项还须为8的倍数 |
 | `diffusion_step_embed_dim` | `128` | ≥4的偶数，如 `64`、`128`、`256` | 时间条件编码维度 |

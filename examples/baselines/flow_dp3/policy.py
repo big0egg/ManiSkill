@@ -22,8 +22,8 @@ class PolicyConfig:
     n_action_steps: int = 8
     state_dim: int = 28
     action_dim: int = 4
-    radius1_m: float = 0.10
-    radius2_m: float = 0.20
+    radius1_m: float = 0.05
+    radius2_m: float = 0.12
     length_scale: float = 1.0
     down_dims: tuple = (512, 1024, 2048)
     diffusion_step_embed_dim: int = 128
