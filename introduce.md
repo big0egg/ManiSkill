@@ -305,7 +305,7 @@ python -B examples/baselines/flow_dp3/train.py \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
     --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
-    --batch-size 32 --steps 30000 \
+    --batch-size 32 --steps 50000 \
     --resume "$FLOW_RUN_ROOT/full/last.pt" \
     --wandb-mode online --wandb-log-every 10
 ```
@@ -389,7 +389,7 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 
 ```bash
 python -B examples/baselines/flow_dp3/evaluate.py \
-    --checkpoint "$FLOW_RUN_ROOT/full/best.pt" --env-id "$FLOW_TASK" --device cuda:0 \
+    --checkpoint "$FLOW_RUN_ROOT/full/last.pt" --env-id "$FLOW_TASK" --device cuda:0 \
     --control-mode "$FLOW_CONTROL" \
     --episodes 20 --start-seed 1000 --policy-seed 42 \
     --save-video --video-dir "$FLOW_RUN_ROOT/videos-full" --video-fps 20 \

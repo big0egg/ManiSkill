@@ -98,10 +98,69 @@ W&B 模拟测试通过，四个任务的训练和评估采用 `--wandb-mode disa
 | 批次 | 候选任务 | 接入工作与风险 | 进入下一批的条件 |
 | --- | --- | --- | --- |
 | 第一批，已完成 | PushCube、StackCube、PegInsertionSide、DrawTriangle | 单臂位置/位姿控制、腕部相机、无夹爪绘画 | 已完成上述流程验证；继续正式训练评测 |
-| 第二批 | LiftPegUpright-v1、PlaceSphere-v1、PullCube-v1；PushT-v1 单独验收 | 前三项可复用现有单臂专家；PushT 需确定专家/已有示范来源，并验证 PandaStick 位姿控制及目标轮廓几何信息是否足够 | 成功示范稳定生成，动作真实转换，几何观测含目标所需信息 |
-| 第三批 | StackPyramid-v1、PlugCharger-v1、PullCubeTool-v1、DrawSVG-v1 | 多物体、工具、精细旋转、长轨迹；已有专家仍需逐项校验相机、crop、步数上限和 FPS 漏点 | 长轨迹回放一致，操作物体与目标覆盖充分，失败转换可诊断 |
-| 第四批 | PickSingleYCB-v1、TurnFaucet-v1、OpenCabinetDrawer-v1、OpenCabinetDoor-v1 | 资源模型、物体泛化、关节物体及可能的机器人差异；需落实资产、示范来源和基座/TCP 定义 | 资产可复现，跨物体/场景划分明确，关节与控制接口完整 |
-| 第五批 | TwoRobotPickCube-v1、TwoRobotStackCube-v1，以及灵巧手、UnitreeG1/H1 等环境 | 多机器人或多接触点，单一 TCP 相对点云不能直接照搬；需设计多个观测参考、状态和联合动作，另找可靠专家 | 先完成观测/动作设计和小规模原型，再决定正式支持范围 |
+| 第二批 | LiftPegUpright-v1、PlaceSphere-v1、PullCube-v1 | 已有本地单臂专家脚本；先核验 LiftPegUpright 成功判定、PlaceSphere 精确放置与释放、PullCube 目标可观测性 | 成功判定与物理结果一致，成功示范稳定生成，动作真实转换，目标信息充分 |
+| 第三批 | PushT-v1、PullCubeTool-v1、PlugCharger-v1 | 形状与姿态、工具接触、精细插入；PushT 需落实示范并核验 PandaStick 控制与目标朝向，工具和插孔需检查 crop、相机和 FPS 漏点 | 关键几何覆盖充分，成功示范与长轨迹转换可靠 |
+| 第四批 | PickSingleYCB-v1、AssemblingKits-v1、PokeCube-v1、TurnFaucet-v1 | 物体泛化、形状匹配、工具与关节物体；需落实资产和示范来源，逐项核对目标字段与控制接口 | 资产可复现，任务目标正确，跨物体/场景划分明确 |
+| 条件成熟后单独验收 | StackPyramid-v1、DrawSVG-v1、RollBall-v1 | 分别需要解决同形物体身份、路径顺序与完成进度、运动趋势和反馈频率；不能只因有环境就视为当前输入足够 | 观测包含任务所需信息，相关失败能够明确诊断 |
+| 第五批 | OpenCabinetDrawer-v1、OpenCabinetDoor-v1、TwoRobotPickCube-v1、TwoRobotStackCube-v1，以及灵巧手、UnitreeG1/H1 等环境 | Fetch 移动底盘、双臂或多接触点不能直接复用当前 Panda 接口；需重新设计观测参考、本体状态和动作，并落实专家 | 先完成观测/动作设计和小规模原型，再决定正式支持范围 |
+
+### 任务适配分析补充（2026-10-09）
+
+本次依据本地环境源码、[观测适配器](examples/baselines/flow_dp3/obs_adapter.py)、
+[任务注册表](examples/baselines/flow_dp3/task_registry.py)和
+[Panda 专家映射](mani_skill/examples/motionplanning/panda/run.py)进行只读分析，
+并对照[官方桌面任务目录](https://maniskill.readthedocs.io/en/latest/tasks/table_top_gripper/index.html)。
+下列判断属于候选任务适配分析，未接入新任务、生成新示范或实测策略成功率。
+本地有专家脚本不等于已验证其示范质量或当前控制模式下的动作转换。
+
+当前输入保留基座坐标轴下的点到 TCP 三维矢量及距离，属于带方向的几何表示，
+不是只有标量距离；不包含 RGB。筛选优先考虑单臂操作、几何能区分操作角色、
+TCP 相对关系能够描述主要动作，以及示范和成功判定是否完整。
+几何上适合不代表必然优于普通 XYZ 点云，性能结论需在相同数据、state、模型和评估条件下对照。
+
+| 候选任务 | 对策略的价值 | 观测与接入要求 |
+| --- | --- | --- |
+| LiftPegUpright-v1 | 杆的长轴和抓取位置可由几何描述；检验姿态调整，不必指定颜色端点 | Panda 可先采用25维本体 state，需旋转控制；成功判定须先核验 |
+| PlaceSphere-v1 | 球与容器形状不同，球自身朝向不重要；检验抓取、精确放置和释放 | 可先采用点云＋25维本体 state；保留球与容器边缘；本地成功条件要求水平及高度偏差不超过5 mm、球静止且已松手 |
+| PullCube-v1 | 易复用 PushCube 流程，检验反向接触与目标位置关系 | 建议显式提供指定目标位置，避免依赖薄目标标记；Panda state 可规划为25＋3＝28维，尚未实现 |
+| PushT-v1 | T 形方向性明显，检验平面形状与姿态关系，比方块平移更有区分度 | 使用 PandaStick；若薄目标轮廓采样不足，提供目标 x、y、yaw，仅目标中心不够；另落实示范来源 |
+| PullCubeTool-v1 | 抓 L 形工具再拉近远处方块，检验 TCP—工具—物体关系 | 已有专家脚本；扩大有效观测范围，保留钩端与方块；工具有效接触点相对 TCP 的偏移随抓取与朝向变化 |
+| PickSingleYCB-v1 | 单一目标物体的多形状抓取，适合几何泛化评测 | 落实 YCB 资产和抓取示范，提供指定目标位置；分别评估已见物体新初始状态和未见物体 |
+| PlugCharger-v1 | 插脚与插座具有几何结构，适合精细对齐和插入 | 已有专家脚本；核验腕部相机与512点采样能否保留插脚、插孔，必要时提供经过标定的目标位姿 |
+| PokeCube-v1 | 抓杆后用杆推动方块，补充连续工具操作 | 落实示范；保留杆端、方块和目标信息；本地 state extra 的 goal_pos 指向杆位置，不能按名称直接当作方块目标 |
+| AssemblingKits-v1 | 零件与槽位的形状匹配、旋转对齐及精细放置，几何研究价值较高 | 落实资产和示范，保证槽边与零件轮廓可观测；接入工作量高于前三项 |
+
+单一 TCP 参考点并不使工具任务无法表示：矢量点云仍保留工具几何。
+但模型需要学习抓取位置、工具朝向与有效接触端之间的关系，
+不能把 TCP 到物体的距离直接等同于工具端到物体的距离。
+
+以下任务需要先解决额外条件或评估问题：
+
+- **LiftPegUpright**：本地任务说明写 Y 欧拉角，但 `evaluate()` 使用 `XYZ` 欧拉角第三分量判断直立。
+  存在代码与说明不一致，接入前需回放专家，核对实际姿态与 success，尚未认定评估可靠。
+  见 [成功判定](mani_skill/envs/tasks/tabletop/lift_peg_upright.py)。
+- **StackPyramid**：三个方块几何相同、颜色不同且有指定角色，当前纯几何输入存在身份歧义。
+  有专家脚本也不能消除观测不足；增加 RGB 或视觉身份信息须另经用户同意。
+- **DrawSVG**：已有专家脚本，可扩展 DrawTriangle，但复杂路径还涉及顺序、连续性和完成进度；
+  薄线采样与无序点集是否足够需要核验。
+- **RollBall**：主要难点是速度与运动趋势，当前两帧输入是否足够需验证；
+  还需检查观测范围、闭环反馈频率和动作块长度，不作为首批新增任务。
+- **OpenCabinetDrawer / OpenCabinetDoor**：本地使用移动机器人 Fetch，几何操作有价值，
+  但底盘、本体状态、动作空间与大范围观测都需适配，不能直接复用 Panda 25维 state。
+- **PickClutterYCB**：本地 `evaluate()` 的 success 固定返回 False，子类未覆盖，
+  必须先补全有效评估定义再开展成功率实验。见 [任务源码](mani_skill/envs/tasks/tabletop/pick_clutter_ycb.py)。
+- **FMBAssembly1Easy**：本地 success 只检查桥形零件位置距离小于5 mm，
+  不能直接作为完整多零件装配能力的指标。见 [任务源码](mani_skill/envs/tasks/fmb/fmb.py)。
+
+推荐先接入 PlaceSphere、PullCube，并核验 LiftPegUpright；随后选择 PushT 和 PullCubeTool，
+再用 PickSingleYCB 测试物体泛化。分别覆盖精确放置、推拉、姿态调整、形状对齐、工具使用和跨物体几何泛化。
+这些候选目前均不在 Flow DP3 的五任务支持列表内，不能仅替换 `--env-id`；
+需要接通任务注册、观测契约、相机/crop、控制与示范转换、配置和成功判定。
+
+state 设计继续以本体信息为基础。点云难以稳定观察的指定目标位置、朝向或目标角度，
+可作为明确的任务条件提出接入方案；这与输入操作物体实时真实位姿、抓取标签或成功标签不同。
+可见目标物体的几何优先从点云获取，提供目标条件时须说明其来源与坐标系。
+上述维度和输入建议均为规划，本次没有改变任何实际 state、观测或控制接口。
 
 ### 每批的统一验收要求
 
