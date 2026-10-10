@@ -1,5 +1,54 @@
 # Flow DP3 版本记录与任务接入规划
 
+## 第二批：三个刚体任务（2026-10-10）
+
+已接入 LiftPegUpright-v1、PlaceSphere-v1、PullCube-v1 的专家采集、真实闭环动作转换、
+训练、恢复、推理、任务诊断和点云可视化。完整命令见 [第二批使用说明](examples/baselines/flow_dp3/RIGID_TASKS.md)。
+
+| 任务 | 机器人 | 控制器 | state / action | 默认步数上限 | 真实成功保持 |
+| --- | --- | --- | --- | --- | --- |
+| LiftPegUpright-v1 | panda | pd_ee_delta_pose | 25 / 7 | 400 | 20步 |
+| PlaceSphere-v1 | panda | pd_ee_delta_pose | 25 / 7 | 300 | 20步 |
+| PullCube-v1 | panda | pd_ee_delta_pos | 28 / 4 | 200 | 20步 |
+
+点云仍为512×4矢量距离，不加入RGB或隐藏物体位姿。
+PullCube增加3维指定目标位置，以免薄圆盘在点云中不可见；其余两项只使用25维本体state。
+新数据契约v7覆盖末尾真实状态，以零机械臂增量和原夹爪状态填充末尾动作，历史契约保持兼容。
+
+修正LiftPeg原生直立判定：以杆局部X长轴与世界竖直的夹角衡量，允许任意yaw及两端朝上，
+容差0.08rad，中心高度为0.12m±5mm。契约记录该修正语义，评测属于本地修正版。
+专家按真实抓取关系搜索可达直立姿态，释放并撤离；示范要求释放、静止及持续保持成功。
+PlaceSphere专家按球半径和容器底厚精确放置，释放后撤离、等待稳定，并检查规划失败。
+PullCube保持时机械臂位置增量归零，不继续重复推动动作。
+
+### 第二批验证结果
+
+验证采用CPU仿真和软件Vulkan。每个任务生成5条原生成功示范，再各转换并保存3条；
+全部保存示范均通过真实20步保持检查。数据和小模型检查位于独立目录，未覆盖已有实验。
+
+| 任务 | 成功转换 / 尝试 | 动作总数 | T+1观测总数 | 首条逐帧复核 |
+| --- | --- | --- | --- | --- |
+| LiftPegUpright-v1 | 3 / 3 | 763 | 766 | 254帧，state和点云最大误差0 |
+| PlaceSphere-v1 | 3 / 3 | 532 | 535 | 185帧，state和点云最大误差0 |
+| PullCube-v1 | 3 / 3 | 278 | 281 | 88帧，state和点云最大误差0 |
+
+三个任务均完成小模型训练10步、从checkpoint恢复至20步、真实环境16步闭环推理，
+并生成完整专家视频、策略视频及512点矢量距离双图PNG。
+专家首条录像分别为254、185、88帧，策略录像各17帧，全部逐帧解码检查通过。
+这些20步小模型在16步检查中均未成功，属于接口检查，不能用来评价策略性能。
+21项Flow DP3回归测试和11项可视化测试通过；另一个真实W&B SDK离线服务测试
+因当前工具环境禁止Unix/TCP套接字而失败，已记录原始错误；本次训练和推理使用disabled模式。
+
+PullCube比较四个候选视角后采用低位右侧256×256、65°相机，保留完整目标范围并显式提供目标位置。
+首条轨迹88帧中仍有2帧方块未被FPS选中；改善相机不能保证所有接触阶段都无遮挡。
+PlaceSphere首条轨迹每10帧及末帧的抽查中，球仅占4–6点、容器7–13点，精确放置需通过正式训练评测。
+LiftPeg同样抽查下杆占12–33点。分割ID只用于这些统计，不参与采样或模型输入。
+
+汇总见 [.runtime/flow_dp3/rigid-batch2-20261010/validation.json](.runtime/flow_dp3/rigid-batch2-20261010/validation.json)，
+逐帧复核与点云覆盖见 [final-observation-audit.json](.runtime/flow_dp3/rigid-batch2-20261010/final-observation-audit.json)。
+PullCube最终相机数据为该目录下 `PullCube-v1/demos-right65.h5`，初始相机数据仅作比较保留。
+本次未进行正式100条数据集、30000步训练或PPU运行验证。
+
 ## PickCube双控制录制与自动专家视频（2026-10-07）
 
 新录制默认保存同源 `ee` / `joint` 双分支，每个分支保存实际执行后的观测、动作和40步保持结果；两个分支均成功才收录。训练通过 `--control-mode ee/joint` 自动选择数据和动作接口；推理按checkpoint执行，同名参数校验一致性。场景MP4默认按成功保存编号每10条抽1条，第1/11/21……条录制，两分支对应相同编号；未选中轨迹跳过录像渲染和编码，训练数据全量保存。`--video-every 1` 恢复每条录像，元信息记录是否录像及对应路径、帧数和FPS；其他任务沿用原控制器，使用同一录像抽样规则。旧单分支数据和旧checkpoint继续兼容。命令和验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
@@ -91,20 +140,22 @@ W&B 模拟测试通过，四个任务的训练和评估采用 `--wandb-mode disa
 
 ## 后续分批接入规划
 
-以下均为规划，尚未加入 Flow DP3 支持列表。ManiSkill 包含更多环境，
+第二批刚体任务已在2026-10-10接入；下表其余未完成批次仍为规划。ManiSkill 包含更多环境，
 具备环境或点云预设不等于已完成专家数据、动作转换与策略适配。
 批次内可逐任务验收；具体数量根据数据质量和训练结果调整。
 
 | 批次 | 候选任务 | 接入工作与风险 | 进入下一批的条件 |
 | --- | --- | --- | --- |
 | 第一批，已完成 | PushCube、StackCube、PegInsertionSide、DrawTriangle | 单臂位置/位姿控制、腕部相机、无夹爪绘画 | 已完成上述流程验证；继续正式训练评测 |
-| 第二批 | LiftPegUpright-v1、PlaceSphere-v1、PullCube-v1 | 已有本地单臂专家脚本；先核验 LiftPegUpright 成功判定、PlaceSphere 精确放置与释放、PullCube 目标可观测性 | 成功判定与物理结果一致，成功示范稳定生成，动作真实转换，目标信息充分 |
+| 第二批，已接入 | LiftPegUpright-v1、PlaceSphere-v1、PullCube-v1 | 修正LiftPeg直立判定及专家；PlaceSphere精确释放；PullCube显式目标；均增加真实保持示范 | 流程验证见本文件第二批记录；后续正式训练评测 |
 | 第三批 | PushT-v1、PullCubeTool-v1、PlugCharger-v1 | 形状与姿态、工具接触、精细插入；PushT 需落实示范并核验 PandaStick 控制与目标朝向，工具和插孔需检查 crop、相机和 FPS 漏点 | 关键几何覆盖充分，成功示范与长轨迹转换可靠 |
 | 第四批 | PickSingleYCB-v1、AssemblingKits-v1、PokeCube-v1、TurnFaucet-v1 | 物体泛化、形状匹配、工具与关节物体；需落实资产和示范来源，逐项核对目标字段与控制接口 | 资产可复现，任务目标正确，跨物体/场景划分明确 |
 | 条件成熟后单独验收 | StackPyramid-v1、DrawSVG-v1、RollBall-v1 | 分别需要解决同形物体身份、路径顺序与完成进度、运动趋势和反馈频率；不能只因有环境就视为当前输入足够 | 观测包含任务所需信息，相关失败能够明确诊断 |
 | 第五批 | OpenCabinetDrawer-v1、OpenCabinetDoor-v1、TwoRobotPickCube-v1、TwoRobotStackCube-v1，以及灵巧手、UnitreeG1/H1 等环境 | Fetch 移动底盘、双臂或多接触点不能直接复用当前 Panda 接口；需重新设计观测参考、本体状态和动作，并落实专家 | 先完成观测/动作设计和小规模原型，再决定正式支持范围 |
 
 ### 任务适配分析补充（2026-10-09）
+
+本节保留接入前的分析结论；LiftPeg、PlaceSphere、PullCube的最新实现与验证见上方2026-10-10第二批记录。
 
 本次依据本地环境源码、[观测适配器](examples/baselines/flow_dp3/obs_adapter.py)、
 [任务注册表](examples/baselines/flow_dp3/task_registry.py)和

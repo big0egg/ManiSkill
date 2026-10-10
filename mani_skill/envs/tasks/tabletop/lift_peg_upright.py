@@ -28,7 +28,7 @@ class LiftPegUprightEnv(BaseEnv):
     - the peg's xy position is randomized on top of a table in the region [0.1, 0.1] x [-0.1, -0.1]. It is placed flat along it's length on the table
 
     **Success Conditions:**
-    - the absolute value of the peg's y euler angle is within 0.08 of $\pi$/2 and the z position of the peg is within 0.005 of its half-length (0.12).
+    - the peg's local X (long) axis is within 0.08 radians of world vertical and its center height is within 0.005 of its half-length (0.12).
     """
 
     _sample_video_link = "https://github.com/mani-skillll/ManiSkill/raw/main/figures/environment_demos/LiftPegUpright-v1_rt.mp4"
@@ -89,12 +89,13 @@ class LiftPegUprightEnv(BaseEnv):
     def evaluate(self):
         q = self.peg.pose.q
         qmat = rotation_conversions.quaternion_to_matrix(q)
-        euler = rotation_conversions.matrix_to_euler_angles(qmat, "XYZ")
-        is_peg_upright = (
-            torch.abs(torch.abs(euler[:, 2]) - np.pi / 2) < 0.08
-        )  # 0.08 radians of difference permitted
+        # The collision box is long along local X. Its world Z component measures
+        # uprightness independent of yaw and Euler-angle singularities.
+        is_peg_upright = qmat[:, 2, 0].abs() > np.cos(0.08)
         close_to_table = torch.abs(self.peg.pose.p[:, 2] - self.peg_half_length) < 0.005
         return {
+            "is_peg_upright": is_peg_upright,
+            "close_to_table": close_to_table,
             "success": is_peg_upright & close_to_table,
         }
 

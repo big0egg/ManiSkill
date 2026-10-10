@@ -3,7 +3,6 @@ import sapien
 from transforms3d.euler import euler2quat
 
 from mani_skill.envs.tasks import PlaceSphereEnv
-from mani_skill.utils import common
 from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotionPlanningSolver
 from mani_skill.examples.motionplanning.base_motionplanner.utils import compute_grasp_info_by_obb, get_actor_obb
 
@@ -50,34 +49,43 @@ def solve(env: PlaceSphereEnv, seed=None, debug=False, vis=False):
         break
     else:
         print("Fail to find a valid grasp pose")
+        planner.close()
+        return -1
 
     # -------------------------------------------------------------------------- #
     # Reach
     # -------------------------------------------------------------------------- #
     reach_pose = grasp_pose * sapien.Pose([0, 0, -0.05])
-    planner.move_to_pose_with_screw(reach_pose)
+    res = planner.move_to_pose_with_screw(reach_pose)
+    if res == -1: return res
 
     # -------------------------------------------------------------------------- #
     # Grasp
     # -------------------------------------------------------------------------- #
-    planner.move_to_pose_with_screw(grasp_pose)
+    res = planner.move_to_pose_with_screw(grasp_pose)
+    if res == -1: return res
     planner.close_gripper()
 
     # -------------------------------------------------------------------------- #
     # Lift
     # -------------------------------------------------------------------------- #
     lift_pose = sapien.Pose([0, 0, 0.1]) * grasp_pose
-    planner.move_to_pose_with_screw(lift_pose)
+    res = planner.move_to_pose_with_screw(lift_pose)
+    if res == -1: return res
 
     # -------------------------------------------------------------------------- #
     # Stack
     # -------------------------------------------------------------------------- #
-    block_half_size_torch = common.to_tensor(env.block_half_size)
-    goal_pose = env.bin.pose * sapien.Pose([0, 0, (block_half_size_torch[2] * 2).item()])
+    goal_pose = env.bin.pose * sapien.Pose([0, 0, env.radius + env.block_half_size[0] + 0.003])
     offset = (goal_pose.p - env.obj.pose.p).cpu().numpy()[0] # remember that all data in ManiSkill is batched and a torch tensor
     align_pose = sapien.Pose(lift_pose.p + offset, lift_pose.q)
-    planner.move_to_pose_with_screw(align_pose)
+    res = planner.move_to_pose_with_screw(align_pose)
+    if res == -1: return res
 
-    res = planner.open_gripper()
+    res = planner.open_gripper(t=10)
+    retreat_pose = sapien.Pose([0, 0, 0.08]) * env.agent.tcp.pose.sp
+    res = planner.move_to_pose_with_screw(retreat_pose)
+    if res == -1: return res
+    res = planner.open_gripper(t=20)
     planner.close()
     return res

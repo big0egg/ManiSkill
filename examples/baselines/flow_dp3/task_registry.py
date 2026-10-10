@@ -1,4 +1,4 @@
-"""First-batch task interfaces; presets alone do not imply tested support."""
+"""Task interfaces; presets alone do not imply tested policy performance."""
 from dataclasses import dataclass, replace
 import math
 from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
@@ -12,12 +12,15 @@ class TaskSpec:
     action_dim: int
     max_steps: int
     solver: str
+    goal_position: bool = False
+    hold_steps: int = 0
+    contract_version: int = 3
 
     @property
     def state_fields(self):
         n = self.joints
         fields = {"qpos": [0, n], "qvel": [n, 2*n], "tcp_base_pose_wxyz": [2*n, 2*n+7]}
-        if self.solver == "pick_cube":
+        if self.goal_position:
             fields["goal_base_pos"] = [2*n+7, 2*n+10]
         return fields
 
@@ -27,11 +30,14 @@ class TaskSpec:
 
 
 TASKS = {
-    "PickCube-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 200, "pick_cube"),
+    "PickCube-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 200, "pick_cube", True, 40, 5),
     "PushCube-v1": TaskSpec("panda", "pd_ee_delta_pos", 9, 4, 200, "push_cube"),
     "StackCube-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 400, "stack_cube"),
     "PegInsertionSide-v1": TaskSpec("panda_wristcam", "pd_ee_delta_pose", 9, 7, 500, "peg_insertion_side"),
     "DrawTriangle-v1": TaskSpec("panda_stick", "pd_ee_delta_pos", 7, 3, 300, "draw_triangle"),
+    "LiftPegUpright-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 400, "lift_peg_upright", False, 20, 7),
+    "PlaceSphere-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 300, "place_sphere", False, 20, 7),
+    "PullCube-v1": TaskSpec("panda", "pd_ee_delta_pos", 9, 4, 200, "pull_cube", True, 20, 7),
 }
 
 
@@ -41,7 +47,7 @@ def get_task(env_id, *, contract_version=None):
     except KeyError:
         raise ValueError(f"FlowDP3 尚未接入任务 {env_id!r}；可选 {list(TASKS)}") from None
     if contract_version is not None:
-        supported = (1, 2, 4, 5, 6) if env_id == "PickCube-v1" else (3,)
+        supported = (1, 2, 4, 5, 6) if env_id == "PickCube-v1" else (task.contract_version,)
         if type(contract_version) is not int or contract_version not in supported:
             raise ValueError(f"{env_id} 不支持观测契约版本 {contract_version!r}")
         if env_id == "PickCube-v1" and contract_version in (1, 2):

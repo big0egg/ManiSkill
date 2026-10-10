@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import sapien
+from transforms3d.euler import euler2quat
 
 from mani_skill.envs.tasks import LiftPegUprightEnv
 from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotionPlanningSolver
@@ -43,7 +44,7 @@ def solve(env: LiftPegUprightEnv, seed=None, debug=False, vis=False):
     obb = get_actor_obb(env.peg)
     approaching = np.array([0, 0, -1])
     target_closing = env.agent.tcp.pose.to_transformation_matrix()[0, :3, 1].cpu().numpy()
-    peg_init_pose = env.peg.pose
+    peg_init_pose = env.peg.pose.sp
 
     grasp_info = compute_grasp_info_by_obb(
         obb,
@@ -53,8 +54,6 @@ def solve(env: LiftPegUprightEnv, seed=None, debug=False, vis=False):
     )
     closing, center = grasp_info["closing"], grasp_info["center"]
     grasp_pose = env.agent.build_grasp_pose(approaching, closing, center)
-    offset = sapien.Pose([0.10, 0, 0])
-    grasp_pose = grasp_pose * offset
 
     # -------------------------------------------------------------------------- #
     # Reach
@@ -68,38 +67,53 @@ def solve(env: LiftPegUprightEnv, seed=None, debug=False, vis=False):
     # -------------------------------------------------------------------------- #
     res = planner.move_to_pose_with_screw(grasp_pose)
     if res == -1: return res
-    planner.close_gripper(gripper_state=-0.6)
+    planner.close_gripper()
 
     # -------------------------------------------------------------------------- #
     # Lift
     # -------------------------------------------------------------------------- #
-    lift_pose = sapien.Pose([0, 0, 0.30]) * grasp_pose
+    lift_pose = sapien.Pose([0, 0, 0.25]) * grasp_pose
     res = planner.move_to_pose_with_screw(lift_pose)
     if res == -1: return res
 
     # -------------------------------------------------------------------------- #
     # Place upright
     # -------------------------------------------------------------------------- #
-    theta = np.pi/10  
-    rotation_quat = np.array([np.cos(theta), 0, np.sin(theta), 0])  
-    
-    final_pose = lift_pose * sapien.Pose(
-        p=[0, 0, 0],
-        q=rotation_quat
-    )
-    res = planner.move_to_pose_with_screw(final_pose)
-    if res == -1: return res
+    # Use the measured grasp transform to rotate the peg's long X axis upright.
+    # A quaternion with cos(theta)/sin(theta) rotates by 2*theta, not theta.
+    peg_to_tcp = (env.peg.pose.inv() * env.agent.tcp.pose).sp
+    # Both ends and any yaw are valid. Search a reachable wrist orientation
+    # rather than forcing a single 90-degree rotation through a joint limit.
+    best = None
+    for sign in (1, -1):
+        for yaw in (0, np.pi / 4, -np.pi / 4, np.pi / 2, -np.pi / 2, np.pi):
+            upright_rotation = (sapien.Pose(q=euler2quat(0, sign * np.pi / 2, yaw)) *
+                                sapien.Pose(q=peg_init_pose.q))
+            upright_peg = sapien.Pose([*peg_init_pose.p[:2], env.peg_half_length + 0.10], upright_rotation.q)
+            final_pose = upright_peg * peg_to_tcp
+            path = planner.move_to_pose_with_screw(final_pose, dry_run=True)
+            if path != -1 and (best is None or len(path["position"]) < len(best[0]["position"])):
+                best = path, final_pose
+    if best is None:
+        planner.close()
+        return -1
+    path, final_pose = best
+    res = planner.follow_path(path)
 
     # -------------------------------------------------------------------------- #
     # Lower
     # -------------------------------------------------------------------------- #
-    lower_pose = sapien.Pose([0, 0, -0.10]) * final_pose
+    lower_pose = sapien.Pose([0, 0, -0.099]) * final_pose
     res = planner.move_to_pose_with_screw(lower_pose)
     if res == -1: return res
 
+    res = planner.open_gripper(t=10)
+    # Withdraw away from the peg along the gripper's approach axis, then settle.
+    retreat_pose = env.agent.tcp.pose.sp * sapien.Pose([0, 0, -0.06])
+    res = planner.move_to_pose_with_screw(retreat_pose)
+    if res == -1: return res
+    res = planner.open_gripper(t=20)
     planner.close()
-    
-    planner.open_gripper()
     return res
 
 if __name__ == "__main__":

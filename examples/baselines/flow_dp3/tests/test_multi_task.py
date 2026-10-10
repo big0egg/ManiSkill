@@ -60,10 +60,10 @@ class MultiTaskTests(unittest.TestCase):
                     config_from_contract(changed)
                 with self.assertRaisesRegex(ValueError, "不匹配"):
                     make_env(contract=contract, env_id="Unknown-v1")
-                self.assertEqual(contract["state_dim"], 28 if env_id == "PickCube-v1" else (21 if task.robot == "panda_stick" else 25))
+                self.assertEqual(contract["state_dim"], 28 if task.goal_position else (21 if task.robot == "panda_stick" else 25))
                 self.assertEqual("hand_camera" in contract["sensor_configs"], task.robot == "panda_wristcam")
 
-    def test_new_visual_tasks_do_not_read_hidden_object_or_goal_state(self):
+    def test_visual_tasks_read_only_proprioception_and_prescribed_goals(self):
         xyz = torch.rand(512, 3, generator=torch.Generator().manual_seed(3))*.08 + torch.tensor([.52, -.08, .1])
         for env_id, task in TASKS.items():
             if env_id == "PickCube-v1":
@@ -75,11 +75,14 @@ class MultiTaskTests(unittest.TestCase):
                                         tcp=SimpleNamespace(pose=tcp))
                 obs = {"pointcloud": {"xyzw": torch.cat((xyz, torch.ones(512, 1)), -1)[None]},
                        "agent": {"qpos": torch.zeros(1, task.joints), "qvel": torch.zeros(1, task.joints)},
-                       "extra": {}}
+                       "extra": {"goal_pos": torch.tensor([[.4, .1, .05]])} if task.goal_position else {}}
                 result, _ = adapt_observation(obs, agent, config_from_contract(contract), contract=contract)
                 self.assertEqual(result["state"].shape, (1, task.state_dim))
                 self.assertEqual(result["pointcloud_distance"].shape, (1, 512, 4))
-                np.testing.assert_allclose(result["state"][0, -7:-4], [.6, 0, .2])
+                lo, hi = task.state_fields["tcp_base_pose_wxyz"]
+                np.testing.assert_allclose(result["state"][0, lo:lo+3], [.6, 0, .2])
+                if task.goal_position:
+                    np.testing.assert_allclose(result["state"][0, -3:], [.4, .1, .05])
 
     def test_dynamic_dataset_loss_prediction_and_checkpoint_roundtrip(self):
         for env_id, task in TASKS.items():

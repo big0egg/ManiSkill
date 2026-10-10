@@ -16,6 +16,10 @@ v1录像回放恢复旧128×128相机，v2/v4/v5/v6按契约保存的相机参�
 任务选择、生成数据、训练和推理命令见 [introduce.md](../introduce.md)。
 本页的默认路径、轨迹索引和帧范围示例对应 PickCube 数据。
 
+第二批也支持 LiftPegUpright、PlaceSphere、PullCube 的v7数据，使用相同的 `--dataset` 参数。
+PullCube包含指定目标字段，会显示GOAL；LiftPeg和PlaceSphere不显示GOAL。
+新任务命令见 [第二批使用说明](../examples/baselines/flow_dp3/RIGID_TASKS.md)。
+
 ## 0. 查看帮助与快速使用
 
 两个 Python 工具都支持 `--help`，也可以写成 `-h`。帮助显示后立即退出，不读取数据、不启动窗口或仿真：

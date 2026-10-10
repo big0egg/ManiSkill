@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from obs_adapter import ObservationConfig, adapt_observation, make_env, validate_env, action_bounds
-from pickcube_metrics import pickcube_metrics
+from task_metrics import task_metrics, demonstration_success
 from task_registry import TASKS, get_task
 from scene_bounds import get_scene_crop_bounds
 from control_modes import CONTROL_CHOICES, DUAL_LAYOUT
@@ -48,7 +48,8 @@ def generate_raw(path, count, start_seed, max_attempts, max_steps, env_id="PickC
                 result = solve(env, seed=seed, debug=False, vis=False)
             except EpisodeLimitError:
                 result = -1
-            success = not isinstance(result, int) and bool(result[-1]["success"].item())
+            # Experts may return an earlier step; inspect the actual final state.
+            success = not isinstance(result, int) and demonstration_success(env_id, task_metrics(env))
             record.flush_trajectory(save=success)
             saved += int(success)
             print(f"生成 seed={seed}: success={success}, 已保存 {saved}/{count}", flush=True)
@@ -102,8 +103,7 @@ class ObservationCollector(gym.Wrapper):
         adapted, detail = adapt_observation(obs, self.unwrapped.agent, self.config, contract=self.contract)
         self.observations.append({key: value[0].numpy().copy() for key, value in adapted.items()})
         self.diagnostics.append(detail)
-        if self.contract["env_id"] == "PickCube-v1":
-            self.task_metrics.append(pickcube_metrics(self, info))
+        self.task_metrics.append(task_metrics(self, info))
 
     def step(self, action):
         action = torch.as_tensor(action).detach().cpu().numpy().reshape(-1)
@@ -168,22 +168,29 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
             fixed_pose = (Pose.create(controller._target_pose.raw_pose.clone())
                           if contract["control_mode"] == "pd_ee_delta_pose" else None)
             for _ in range(hold_steps):
-                action = (last_action if fixed_pose is None else
-                          pose_hold_action(target, fixed_pose, float(last_action[-1])))
+                if fixed_pose is not None:
+                    action = pose_hold_action(target, fixed_pose, float(last_action[-1]))
+                elif contract["control_mode"] == "pd_ee_delta_pos":
+                    action = np.zeros_like(last_action)
+                    action[-1] = last_action[-1]
+                else:
+                    action = last_action
                 info = target.step(action)[-1]
     except EpisodeLimitError as exc:
         return None, {"reason": str(exc)}
     success_end = bool(torch.as_tensor(info["success"]).item())
     hold_metrics = target.task_metrics[motion_steps + 1:] if hold_steps else []
-    hold_stable = (len(hold_metrics) == hold_steps and all(m["success"] for m in hold_metrics)) if hold_steps else True
-    if not success_end or not hold_stable or not target.actions:
+    hold_stable = (len(hold_metrics) == hold_steps and all(
+        demonstration_success(contract["env_id"], m) for m in hold_metrics)) if hold_steps else True
+    valid_final = demonstration_success(contract["env_id"], target.task_metrics[-1])
+    if not success_end or not valid_final or not hold_stable or not target.actions:
         return None, {"success_end": success_end, "steps": len(target.actions), "hold_stable": hold_stable}
     detail = {"source_episode": episode["episode_id"], "seed": reset.get("seed"),
               "control_mode": contract["control_mode"],
               "steps": len(target.actions), "success_once": target.success_once,
               "success_end": success_end, "motion_steps": motion_steps, "hold_steps": hold_steps,
               "pre_hold_success": pre_hold_success, "hold_stable": hold_stable,
-              "hold_goal_error_max_m": max((m["goal_error_m"] for m in hold_metrics), default=None),
+              "hold_goal_error_max_m": max((m["goal_error_m"] for m in hold_metrics if "goal_error_m" in m), default=None),
               "min_cropped_points": min(d["cropped_points"] for d in target.diagnostics),
               "max_distance_norm_error": max(d["distance_norm_error"] for d in target.diagnostics)}
     return detail, None
@@ -209,7 +216,7 @@ def recording_modes(env_id, requested):
     mode = {"ee": task.control_mode, "joint": "pd_joint_pos"}.get(requested, requested or task.control_mode)
     if mode != task.control_mode and (env_id != "PickCube-v1" or mode != "pd_joint_pos"):
         raise ValueError(f"{env_id} 不支持选择 {mode}")
-    version = (6 if mode == "pd_joint_pos" else 5) if env_id == "PickCube-v1" else 3
+    version = (6 if mode == "pd_joint_pos" else 5) if env_id == "PickCube-v1" else task.contract_version
     return {"joint" if mode == "pd_joint_pos" else "ee": (mode, version)}
 
 
@@ -247,9 +254,9 @@ def prepare(args):
     modes = recording_modes(env_id, getattr(args, "control_mode", None))
     dual = len(modes) == 2
     hold_steps = getattr(args, "hold_steps", None)
-    hold_steps = (40 if env_id == "PickCube-v1" else 0) if hold_steps is None else hold_steps
-    if hold_steps and env_id != "PickCube-v1":
-        raise ValueError("保持示范只用于 PickCube，其他任务请使用 --hold-steps 0")
+    hold_steps = task.hold_steps if hold_steps is None else hold_steps
+    if hold_steps and not task.hold_steps:
+        raise ValueError("该任务尚未验证保持示范，请使用 --hold-steps 0")
     robot = metadata["env_info"]["env_kwargs"].get("robot_uids", task.robot)
     if robot != task.robot:
         raise ValueError(f"{env_id} 需要 {task.robot}，原数据 robot_uids={robot}")
@@ -371,7 +378,7 @@ def main():
     parser.add_argument("--count", type=int, default=5, help="保存多少条成功回放；0表示所有原始示范")
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--max-attempts", type=int, default=100)
-    parser.add_argument("--max-steps", type=int, help="任务步数上限：Pick/Push200、Stack400、Peg500、Draw300；Draw不得超过300")
+    parser.add_argument("--max-steps", type=int, help="默认按任务注册表；Draw不得超过300")
     parser.add_argument("--num-points", type=int, default=512)
     parser.add_argument("--control-mode", choices=("both",) + CONTROL_CHOICES,
                         help="PickCube默认both，保存同源ee/joint双分支；也可单独录制ee或joint，其他任务默认原控制器")
@@ -381,7 +388,7 @@ def main():
                         help="每N条成功示范录制1条，默认10：第1/11/21条；1表示每条，两分支使用同一抽样编号")
     parser.add_argument("--video-dir", type=Path, help="默认 <数据集名称>-videos-full/{ee,joint}")
     parser.add_argument("--video-fps", type=int, help="默认环境控制频率；仅影响视频播放速度")
-    parser.add_argument("--hold-steps", type=int, help="PickCube到点后真实保持固定目标，默认40步；其他任务默认0")
+    parser.add_argument("--hold-steps", type=int, help="真实保持固定目标：Pick默认40，新接入Lift/Place/Pull默认20，其他任务默认0")
     parser.add_argument("--length-scale", type=float, default=1.0)
     parser.add_argument("--crop-min", type=float, nargs=3, default=None,
                         help="基座系 xyz 下界（米），默认按任务预设操作区")

@@ -1,4 +1,4 @@
-"""任务点云接口；Pick v5保持位姿/v6关节目标，兼容历史v1/v2/v4。"""
+"""任务点云接口；Pick v5/v6与第二批刚体v7，兼容历史契约。"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -39,7 +39,7 @@ class ObservationConfig:
             raise ValueError("裁剪边界必须是三维有限值，min < max")
 
     def contract(self, *, sensor_configs=None, env_id="PickCube-v1", contract_version=None):
-        version = contract_version if contract_version is not None else (5 if env_id == "PickCube-v1" else 3)
+        version = contract_version if contract_version is not None else get_task(env_id).contract_version
         task = get_task(env_id, contract_version=version)
         result = {"version": version,
                 "pointcloud": asdict(self), "state_dim": task.state_dim,
@@ -56,6 +56,13 @@ class ObservationConfig:
             result["sequence_sampling"] = {
                 "current_state": "all_including_terminal",
                 "tail_action": "zero_arm_keep_gripper" if version == 5 else "repeat_absolute_target"}
+        if version == 7:
+            result["action_space"] = {"low": [-1.0] * task.action_dim,
+                                      "high": [1.0] * task.action_dim, "arm_units": "normalized"}
+            result["sequence_sampling"] = {"current_state": "all_including_terminal",
+                                           "tail_action": "zero_arm_keep_gripper"}
+            if env_id == "LiftPegUpright-v1":
+                result["success_definition"] = "local_x_axis_vertical_within_0.08rad_center_height_0.12m_within_0.005m"
         return result
 
 
@@ -65,7 +72,7 @@ def config_from_contract(contract):
     version = contract.get("version")
     if version == 1:
         expected = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
-    elif version in (2, 3, 4, 5, 6):
+    elif version in (2, 3, 4, 5, 6, 7):
         env_id = contract.get("env_id", "PickCube-v1")
         task = get_task(env_id, contract_version=version)
         sensors = contract.get("sensor_configs", {})
@@ -163,7 +170,7 @@ def adapt_observation(obs, agent, config, *, contract=None):
     tcp_base = (agent.robot.pose.inv() * tcp_pose).raw_pose.detach().cpu().clone()
     tcp_base[:, 3:] *= torch.where(tcp_base[:, 3:4] < 0, -1.0, 1.0)
     parts = [qpos, qvel, tcp_base]
-    # New visual tasks use proprioception only: no hidden object poses or goal labels.
+    # Only prescribed goals enter state; hidden object poses and success labels do not.
     if "goal_base_pos" in task.state_fields:
         world_to_base = agent.robot.pose.inv().to_transformation_matrix().detach().cpu()[0]
         goal_world = torch.as_tensor(obs["extra"]["goal_pos"]).detach().cpu().reshape(1, 3)
@@ -197,7 +204,9 @@ def make_env(control_mode=None, visual=True, max_episode_steps=None, render_mode
     env = gym.make(env_id, robot_uids=task.robot, num_envs=1,
                    obs_mode="pointcloud" if visual else "none",
                    control_mode=control_mode, sim_backend="physx_cpu",
-                   render_backend="cpu" if visual else "none", render_mode=render_mode,
+                   # These actors construct RenderMaterial even for obs_mode=none.
+                   render_backend="cpu" if visual or env_id in ("LiftPegUpright-v1", "PlaceSphere-v1") else "none",
+                   render_mode=render_mode,
                    sensor_configs=sensors, reconfiguration_freq=1,
                    max_episode_steps=max_episode_steps)
     return env

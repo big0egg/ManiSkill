@@ -1,4 +1,4 @@
-"""Panda task point-cloud presets from testpointcloud camera/crop experiments.
+"""Panda task point-cloud presets checked with task demonstrations.
 
 The registry imports no rendering libraries until a camera is requested.
 Camera positions are world coordinates; crop bounds are robot-base coordinates,
@@ -30,6 +30,12 @@ TASK_POINTCLOUD_PRESETS = {
                                                (.34, -.40, -.03), (.90, .62, .52)),
     "DrawTriangle-v1": TaskPointCloudPreset((.25, -.40, .50), (-.10, -.10, .04), 60,
                                            (.28, -.35, -.03), (.80, .18, .52)),
+    "LiftPegUpright-v1": TaskPointCloudPreset((.30, -.35, .50), (0, 0, .15), 65,
+                                             (.32, -.30, -.03), (.92, .30, .60)),
+    "PlaceSphere-v1": TaskPointCloudPreset((.25, -.30, .35), (0, 0, .04), 60,
+                                           (.43, -.23, -.03), (.83, .23, .45)),
+    "PullCube-v1": TaskPointCloudPreset((.30, .30, .35), (-.12, 0, .06), 65,
+                                        (.20, -.25, -.03), (.85, .25, .45)),
 }
 
 

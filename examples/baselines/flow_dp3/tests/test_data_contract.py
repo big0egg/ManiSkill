@@ -110,7 +110,8 @@ class DataContractTests(unittest.TestCase):
             with self.subTest(task=task):
                 features, detail = pointcloud_features(obs, agent, env_id=task)
                 expected = 512 + {"PickCube-v1": 0, "PushCube-v1": 0, "StackCube-v1": 2,
-                                  "PegInsertionSide-v1": 3, "DrawTriangle-v1": 1}[task]
+                                  "PegInsertionSide-v1": 3, "DrawTriangle-v1": 1,
+                                  "LiftPegUpright-v1": 2, "PlaceSphere-v1": 0, "PullCube-v1": 0}[task]
                 self.assertEqual(detail["cropped_points"], expected)
                 self.assertEqual(detail["sampled_points"], 512)
                 self.assertEqual(tuple(features.shape), (1, 512, 4))

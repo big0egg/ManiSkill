@@ -1,4 +1,4 @@
-"""按 episode 划分；历史契约保留旧窗口，Pick v5/v6覆盖末尾真实状态。"""
+"""按 episode 划分；历史契约保留旧窗口，v5/v6/v7覆盖末尾真实状态。"""
 from __future__ import annotations
 
 import json

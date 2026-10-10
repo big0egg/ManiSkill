@@ -12,7 +12,7 @@ import torch
 
 from experiment_logging import ExperimentLogger, add_wandb_args, require_wandb, preserve_rng
 from obs_adapter import config_from_contract, adapt_observation, make_env, validate_env, action_bounds, clip_action
-from pickcube_metrics import pickcube_metrics
+from task_metrics import task_metrics
 from task_registry import TASKS, get_task
 from control_modes import CONTROL_CHOICES, check_control_mode
 from runtime_utils import load_policy, select_device, sha256
@@ -114,9 +114,8 @@ def evaluate(args):
                 simulation_seconds += time.monotonic() - step_start
                 success_end = bool(torch.as_tensor(info["success"]).item())
                 success_once |= success_end
-                if contract["env_id"] == "PickCube-v1":
-                    episode_trace.append({"step": step + 1, **pickcube_metrics(env, info),
-                                          "action": executed.tolist()})
+                episode_trace.append({"step": step + 1, **task_metrics(env, info),
+                                      "action": executed.tolist()})
                 # 不因瞬时 success/terminated 提前结束；统一执行到任务评估上限。
                 if bool(torch.as_tensor(truncated).item()):
                     break
@@ -132,13 +131,17 @@ def evaluate(args):
                       "predicted_action_clip_fraction": clipped / max(1, action_values),
                       "executed_action_clip_fraction": executed_clipped / max(1, executed_values)}
             if episode_trace:
-                result.update({"final_goal_error_m": episode_trace[-1]["goal_error_m"],
-                               "min_goal_error_m": min(x["goal_error_m"] for x in episode_trace),
+                result.update({"final_task_metrics": {k: v for k, v in episode_trace[-1].items()
+                                                       if k not in ("step", "action")},
                                "final_arm_qvel_maxabs": episode_trace[-1]["arm_qvel_maxabs"],
-                               "grasped_once": any(x["is_grasped"] for x in episode_trace),
-                               "grasped_end": episode_trace[-1]["is_grasped"],
                                "success_steps": sum(x["success"] for x in episode_trace),
                                "last40_success_fraction": sum(x["success"] for x in episode_trace[-40:]) / min(40, len(episode_trace))})
+                if "goal_error_m" in episode_trace[-1]:
+                    result.update(final_goal_error_m=episode_trace[-1]["goal_error_m"],
+                                  min_goal_error_m=min(x["goal_error_m"] for x in episode_trace))
+                if "is_grasped" in episode_trace[-1]:
+                    result.update(grasped_once=any(x["is_grasped"] for x in episode_trace),
+                                  grasped_end=episode_trace[-1]["is_grasped"])
                 traces.append({"seed": seed, "steps": episode_trace})
             if args.save_video:
                 encode_start = time.monotonic()
@@ -192,9 +195,9 @@ def main():
     parser.add_argument("--policy-seed", type=int, default=42)
     parser.add_argument("--n-action-steps", type=int, help="只调整推理动作块长度，不改变模型权重；例如2与8对照")
     parser.add_argument("--reset-policy-seed-per-episode", action="store_true", help="每局从同一个随机流开始，便于配对比较")
-    parser.add_argument("--save-trace", action="store_true", help="保存PickCube逐步物体距离/速度/抓取诊断；不输入模型")
+    parser.add_argument("--save-trace", action="store_true", help="保存逐步任务诊断与实际动作；不输入模型")
     parser.add_argument("--env-id", choices=list(TASKS), help="可选任务校验；实际环境从 checkpoint 读取，不允许跨任务强制覆盖")
-    parser.add_argument("--max-steps", type=int, help="默认按任务：Pick/Push200、Stack400、Peg500、Draw300；Draw不得超过300")
+    parser.add_argument("--max-steps", type=int, help="默认按任务注册表；Draw不得超过300")
     parser.add_argument("--raw-weights", action="store_true", help="默认使用 EMA")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--save-video", action="store_true", help="保存每局 MP4，默认不录制")
