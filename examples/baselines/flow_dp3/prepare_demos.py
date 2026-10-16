@@ -15,8 +15,8 @@ import numpy as np
 import torch
 
 from obs_adapter import ObservationConfig, adapt_observation, make_env, validate_env, action_bounds
-from task_metrics import task_metrics, demonstration_success
-from task_registry import TASKS, get_task
+from task_metrics import task_metrics, demonstration_success, demonstration_trace_success
+from task_registry import TASKS, get_task, validate_source_env_kwargs
 from scene_bounds import get_scene_crop_bounds
 from control_modes import CONTROL_CHOICES, DUAL_LAYOUT
 
@@ -49,7 +49,8 @@ def generate_raw(path, count, start_seed, max_attempts, max_steps, env_id="PickC
             except EpisodeLimitError:
                 result = -1
             # Experts may return an earlier step; inspect the actual final state.
-            success = not isinstance(result, int) and demonstration_success(env_id, task_metrics(env))
+            success = (not isinstance(result, int) and demonstration_success(env_id, task_metrics(env))
+                       and demonstration_trace_success(env_id, env.episode_metrics))
             record.flush_trajectory(save=success)
             saved += int(success)
             print(f"生成 seed={seed}: success={success}, 已保存 {saved}/{count}", flush=True)
@@ -74,6 +75,7 @@ class ExpertStepLimit(gym.Wrapper):
 
     def reset(self, **kwargs):
         self.steps = 0
+        self.episode_metrics = []
         return self.env.reset(**kwargs)
 
     def step(self, action):
@@ -81,6 +83,8 @@ class ExpertStepLimit(gym.Wrapper):
             raise EpisodeLimitError("专家超过任务步数上限")
         result = self.env.step(action)
         self.steps += 1
+        if getattr(self.unwrapped.spec, "id", None) in ("PullCubeTool-v1", "PickSingleYCB-v1"):
+            self.episode_metrics.append(task_metrics(self, result[-1]))
         return result
 
 
@@ -148,6 +152,7 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
         reset["seed"] = reset["seed"][0]
     target.reset(**reset)
     original.reset(**reset)
+    validate_env(target, contract)
     first_state = trajectory_utils.dict_to_list_of_dicts(traj["env_states"])[0]
     target.unwrapped.set_state_dict(first_state)
     original.unwrapped.set_state_dict(first_state)
@@ -183,8 +188,10 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
     hold_stable = (len(hold_metrics) == hold_steps and all(
         demonstration_success(contract["env_id"], m) for m in hold_metrics)) if hold_steps else True
     valid_final = demonstration_success(contract["env_id"], target.task_metrics[-1])
-    if not success_end or not valid_final or not hold_stable or not target.actions:
-        return None, {"success_end": success_end, "steps": len(target.actions), "hold_stable": hold_stable}
+    valid_trace = demonstration_trace_success(contract["env_id"], target.task_metrics)
+    if not success_end or not valid_final or not hold_stable or not valid_trace or not target.actions:
+        return None, {"success_end": success_end, "steps": len(target.actions),
+                      "hold_stable": hold_stable, "valid_trace": valid_trace}
     detail = {"source_episode": episode["episode_id"], "seed": reset.get("seed"),
               "control_mode": contract["control_mode"],
               "steps": len(target.actions), "success_once": target.success_once,
@@ -193,6 +200,9 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
               "hold_goal_error_max_m": max((m["goal_error_m"] for m in hold_metrics if "goal_error_m" in m), default=None),
               "min_cropped_points": min(d["cropped_points"] for d in target.diagnostics),
               "max_distance_norm_error": max(d["distance_norm_error"] for d in target.diagnostics)}
+    if contract["env_id"] == "PullCubeTool-v1":
+        detail.update(tool_grasped_once=any(m["is_tool_grasped"] for m in target.task_metrics),
+                      tool_cube_contact_once=any(m["tool_cube_contact"] for m in target.task_metrics))
     return detail, None
 
 
@@ -260,6 +270,7 @@ def prepare(args):
     robot = metadata["env_info"]["env_kwargs"].get("robot_uids", task.robot)
     if robot != task.robot:
         raise ValueError(f"{env_id} 需要 {task.robot}，原数据 robot_uids={robot}")
+    validate_source_env_kwargs(env_id, metadata["env_info"]["env_kwargs"])
     args.max_steps = args.max_steps or task.max_steps
     low, high = get_scene_crop_bounds(env_id)
     config = ObservationConfig(num_points=args.num_points, length_scale=args.length_scale,
@@ -373,7 +384,7 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", type=Path, help="ManiSkill 原始 .h5；同目录必须有同名 .json")
     source.add_argument("--generate", type=int, help="离线使用仓库内置运动规划器生成成功原始示范")
-    parser.add_argument("--env-id", choices=list(TASKS), help="生成时默认 PickCube-v1；转换时从原始 JSON 读取，显式指定则严格核对")
+    parser.add_argument("--env-id", choices=list(TASKS), help="生成时默认 PickCube-v1；PickSingleYCB固定004_sugar_box；转换时严格核对原始JSON")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=5, help="保存多少条成功回放；0表示所有原始示范")
     parser.add_argument("--start-seed", type=int, default=0)
@@ -388,7 +399,7 @@ def main():
                         help="每N条成功示范录制1条，默认10：第1/11/21条；1表示每条，两分支使用同一抽样编号")
     parser.add_argument("--video-dir", type=Path, help="默认 <数据集名称>-videos-full/{ee,joint}")
     parser.add_argument("--video-fps", type=int, help="默认环境控制频率；仅影响视频播放速度")
-    parser.add_argument("--hold-steps", type=int, help="真实保持固定目标：Pick默认40，新接入Lift/Place/Pull默认20，其他任务默认0")
+    parser.add_argument("--hold-steps", type=int, help="真实保持固定目标：Pick默认40，Lift/Place/Pull/Tool/YCB默认20，其他任务默认0")
     parser.add_argument("--length-scale", type=float, default=1.0)
     parser.add_argument("--crop-min", type=float, nargs=3, default=None,
                         help="基座系 xyz 下界（米），默认按任务预设操作区")

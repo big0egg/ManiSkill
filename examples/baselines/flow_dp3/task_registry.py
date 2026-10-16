@@ -15,6 +15,11 @@ class TaskSpec:
     goal_position: bool = False
     hold_steps: int = 0
     contract_version: int = 3
+    model_ids: tuple[str, ...] = ()
+
+    @property
+    def env_kwargs(self):
+        return {"model_ids": list(self.model_ids)} if self.model_ids else {}
 
     @property
     def state_fields(self):
@@ -38,7 +43,20 @@ TASKS = {
     "LiftPegUpright-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 400, "lift_peg_upright", False, 20, 7),
     "PlaceSphere-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 300, "place_sphere", False, 20, 7),
     "PullCube-v1": TaskSpec("panda", "pd_ee_delta_pos", 9, 4, 200, "pull_cube", True, 20, 7),
+    "PullCubeTool-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 400, "pull_cube_tool", False, 20, 8),
+    "PickSingleYCB-v1": TaskSpec("panda", "pd_ee_delta_pose", 9, 7, 300, "pick_single_ycb", True, 20, 8,
+                                 ("004_sugar_box",)),
 }
+
+
+def validate_source_env_kwargs(env_id, env_kwargs):
+    """Never restore states from a different geometry into the fixed-object task."""
+    task = get_task(env_id)
+    if env_kwargs.get("robot_uids", task.robot) != task.robot:
+        raise ValueError(f"{env_id} 需要机器人 {task.robot}")
+    if task.model_ids and env_kwargs.get("model_ids") != list(task.model_ids):
+        raise ValueError(f"{env_id} 原始示范必须明确记录 model_ids={list(task.model_ids)}；"
+                         "不能将随机物体或未声明物体的轨迹作为固定糖盒数据")
 
 
 def get_task(env_id, *, contract_version=None):

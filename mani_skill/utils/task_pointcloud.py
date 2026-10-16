@@ -36,6 +36,10 @@ TASK_POINTCLOUD_PRESETS = {
                                            (.43, -.23, -.03), (.83, .23, .45)),
     "PullCube-v1": TaskPointCloudPreset((.30, .30, .35), (-.12, 0, .06), 65,
                                         (.20, -.25, -.03), (.85, .25, .45)),
+    "PullCubeTool-v1": TaskPointCloudPreset((.30, -.40, .60), (-.10, -.05, .06), 75,
+                                            (.25, -.40, -.03), (.95, .20, .55)),
+    "PickSingleYCB-v1": TaskPointCloudPreset((.30, -.35, .55), (0, 0, .20), 65,
+                                             (.32, -.30, -.03), (.92, .30, .65)),
 }
 
 

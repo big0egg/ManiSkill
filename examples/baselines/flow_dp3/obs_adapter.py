@@ -1,4 +1,4 @@
-"""任务点云接口；Pick v5/v6与第二批刚体v7，兼容历史契约。"""
+"""任务点云接口；兼容历史契约，v8记录固定物体环境配置。"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -56,13 +56,15 @@ class ObservationConfig:
             result["sequence_sampling"] = {
                 "current_state": "all_including_terminal",
                 "tail_action": "zero_arm_keep_gripper" if version == 5 else "repeat_absolute_target"}
-        if version == 7:
+        if version in (7, 8):
             result["action_space"] = {"low": [-1.0] * task.action_dim,
                                       "high": [1.0] * task.action_dim, "arm_units": "normalized"}
             result["sequence_sampling"] = {"current_state": "all_including_terminal",
                                            "tail_action": "zero_arm_keep_gripper"}
             if env_id == "LiftPegUpright-v1":
                 result["success_definition"] = "local_x_axis_vertical_within_0.08rad_center_height_0.12m_within_0.005m"
+        if version == 8:
+            result["env_kwargs"] = task.env_kwargs
         return result
 
 
@@ -72,7 +74,7 @@ def config_from_contract(contract):
     version = contract.get("version")
     if version == 1:
         expected = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
-    elif version in (2, 3, 4, 5, 6, 7):
+    elif version in (2, 3, 4, 5, 6, 7, 8):
         env_id = contract.get("env_id", "PickCube-v1")
         task = get_task(env_id, contract_version=version)
         sensors = contract.get("sensor_configs", {})
@@ -193,6 +195,16 @@ def make_env(control_mode=None, visual=True, max_episode_steps=None, render_mode
     max_episode_steps = max_episode_steps or task.max_steps
     if env_id == "DrawTriangle-v1" and max_episode_steps > 300:
         raise ValueError("DrawTriangle 画迹缓冲最多300步，max_episode_steps 不得超过300")
+    if task.model_ids:
+        from pathlib import Path
+        from mani_skill import ASSET_DIR
+        assets = ASSET_DIR / "assets/mani_skill2_ycb"
+        required = [assets / "info_pick_v0.json"]
+        required += [assets / "models" / model / filename for model in task.model_ids
+                     for filename in ("collision.ply", "textured.obj")]
+        if any(not Path(path).is_file() for path in required):
+            raise FileNotFoundError(f"缺少固定糖盒 YCB 资产：{assets}；请在同一环境运行 "
+                                    "python -m mani_skill.utils.download_asset ycb")
     if contract is None:
         sensors = task_sensors(env_id)
     else:
@@ -205,16 +217,24 @@ def make_env(control_mode=None, visual=True, max_episode_steps=None, render_mode
                    obs_mode="pointcloud" if visual else "none",
                    control_mode=control_mode, sim_backend="physx_cpu",
                    # These actors construct RenderMaterial even for obs_mode=none.
-                   render_backend="cpu" if visual or env_id in ("LiftPegUpright-v1", "PlaceSphere-v1") else "none",
+                   render_backend="cpu" if visual or env_id in (
+                       "LiftPegUpright-v1", "PlaceSphere-v1", "PullCubeTool-v1", "PickSingleYCB-v1") else "none",
                    render_mode=render_mode,
                    sensor_configs=sensors, reconfiguration_freq=1,
-                   max_episode_steps=max_episode_steps)
+                   max_episode_steps=max_episode_steps,
+                   **(deepcopy(contract["env_kwargs"]) if contract is not None and contract["version"] == 8
+                      else task.env_kwargs))
     return env
 
 
 def validate_env(env, contract):
     if env.unwrapped.spec.id != contract["env_id"] or env.unwrapped.agent.uid != contract["robot_uids"]:
         raise ValueError("实际任务/机器人与契约不匹配")
+    task = get_task(contract["env_id"], contract_version=contract["version"])
+    if task.model_ids:
+        if (tuple(env.unwrapped.all_model_ids) != task.model_ids or
+                tuple(env.unwrapped.model_ids) != task.model_ids):
+            raise ValueError("实际物体与固定糖盒契约不匹配")
     if env.action_space.shape != (contract["action_dim"],):
         raise ValueError(f"实际动作空间 {env.action_space.shape} 与契约不匹配")
     if "action_space" in contract:

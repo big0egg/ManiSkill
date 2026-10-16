@@ -52,6 +52,8 @@ def evaluate(args):
     args.max_steps = args.max_steps or get_task(contract["env_id"]).max_steps
     print(f'实际任务={contract["env_id"]} | robot={contract["robot_uids"]} | '
           f'control_mode={contract["control_mode"]} | action_dim={contract["action_dim"]}', flush=True)
+    if contract.get("env_kwargs", {}).get("model_ids"):
+        print(f'固定操作物体={contract["env_kwargs"]["model_ids"]}', flush=True)
     if policy.config.length_scale != config.length_scale:
         raise ValueError("checkpoint 中数据与策略长度尺度不一致")
     env = make_env(max_episode_steps=args.max_steps, render_mode="rgb_array" if args.save_video else None,
@@ -80,6 +82,7 @@ def evaluate(args):
                 torch.manual_seed(args.policy_seed)
             reset_start = time.monotonic()
             obs, _ = env.reset(seed=seed)
+            validate_env(env, contract)
             reset_seconds = time.monotonic() - reset_start
             preprocess_start = time.monotonic()
             adapted, _ = adapt_observation(obs, env.unwrapped.agent, config, contract=contract)
@@ -142,6 +145,11 @@ def evaluate(args):
                 if "is_grasped" in episode_trace[-1]:
                     result.update(grasped_once=any(x["is_grasped"] for x in episode_trace),
                                   grasped_end=episode_trace[-1]["is_grasped"])
+                if "is_tool_grasped" in episode_trace[-1]:
+                    result.update(tool_grasped_once=any(x["is_tool_grasped"] for x in episode_trace),
+                                  tool_cube_contact_once=any(x["tool_cube_contact"] for x in episode_trace),
+                                  grasped_tool_contact_once=any(x["is_tool_grasped"] and x["tool_cube_contact"]
+                                                               for x in episode_trace))
                 traces.append({"seed": seed, "steps": episode_trace})
             if args.save_video:
                 encode_start = time.monotonic()

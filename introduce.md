@@ -6,7 +6,7 @@
 
 运行顺序：初始化终端 → 选择任务与实验路径 → 录制或转换数据 → 检查观测录像 → 训练 → 闭环推理与录像。
 继续已有训练使用第3.2节；完整模型训练前可先用第3.5节做小模型流程检查。
-各节参数表列出可填内容、默认值及约束；八个任务使用同一套命令，只需先设置任务变量。
+各节参数表列出可填内容、默认值及约束；十个任务使用同一套命令，只需先设置任务变量。
 
 ## 1. 初始化终端与路径
 
@@ -40,7 +40,7 @@ ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 
 
 ### 1.2 选择任务、配置和实验路径
 
-`FLOW_TASK` 只能填下面八个完整任务名之一，大小写一致。配置文件都位于 `examples/baselines/flow_dp3/configs/`。
+`FLOW_TASK` 只能填下面十个完整任务名之一，大小写一致。配置文件都位于 `examples/baselines/flow_dp3/configs/`。
 
 | `FLOW_TASK` / `--env-id` 可填值 | 机器人 | 策略控制器 | `state_dim` | `action_dim` | 默认最大步数 | 正式配置文件 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -52,6 +52,8 @@ ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 
 | `LiftPegUpright-v1` | panda | pd_ee_delta_pose | 25 | 7 | 400 | liftpegupright.yaml |
 | `PlaceSphere-v1` | panda | pd_ee_delta_pose | 25 | 7 | 300 | placesphere.yaml |
 | `PullCube-v1` | panda | pd_ee_delta_pos | 28 | 4 | 200 | pullcube.yaml |
+| `PullCubeTool-v1` | panda | pd_ee_delta_pose | 25 | 7 | 400 | pullcubetool.yaml |
+| `PickSingleYCB-v1`（固定糖盒） | panda | pd_ee_delta_pose | 28 | 7 | 300 | picksingleycb.yaml |
 
 上表步数是Flow DP3的默认上限；三个第二批任务在ManiSkill中的原生注册上限为50步，采集和评估由本项目按上表覆盖。
 以下以 PullCube 为例，运行其他任务只改 `FLOW_TASK`，再执行整个代码块。`FLOW_EXPERIMENT` 是自定实验编号；开始新实验时换编号。
@@ -69,6 +71,8 @@ case "$FLOW_TASK" in
     LiftPegUpright-v1) FLOW_CONFIG_NAME=liftpegupright.yaml ;;
     PlaceSphere-v1) FLOW_CONFIG_NAME=placesphere.yaml ;;
     PullCube-v1) FLOW_CONFIG_NAME=pullcube.yaml ;;
+    PullCubeTool-v1) FLOW_CONFIG_NAME=pullcubetool.yaml ;;
+    PickSingleYCB-v1) FLOW_CONFIG_NAME=picksingleycb.yaml ;;
     *) echo "请选择上表中的完整任务名"; exit 1 ;;
 esac
 export FLOW_CONFIG="$MANISKILL_ROOT/examples/baselines/flow_dp3/configs/$FLOW_CONFIG_NAME"
@@ -78,17 +82,17 @@ mkdir -p "$FLOW_RUN_ROOT"
 ```
 
 后续命令沿用这些变量。`FLOW_DATA` 指向真实训练数据，`FLOW_RUN_ROOT` 保存训练、日志和评估输出，数据可以放在实验目录外。
-PickCube 的控制方式在这里设置：`FLOW_CONTROL=ee` 使用7维末端位姿增量，`FLOW_CONTROL=joint` 使用8维绝对关节目标。其他七个任务保持 `ee`，对应上表各自的末端控制器；LiftPeg和PlaceSphere是7维位姿控制，PullCube是4维位置控制，都不支持joint分支。第3、4节命令统一通过 `--control-mode "$FLOW_CONTROL"` 传入；同一份双分支PickCube数据和 `pickcube.yaml` 可分别训练两种控制方式。两次训练使用不同的 `FLOW_EXPERIMENT` 和输出目录，`FLOW_DATA` 可以指向同一个文件。Joint 控制下的点云矢量距离仍按实际 TCP 计算，state仍为28维。
+PickCube 的控制方式在这里设置：`FLOW_CONTROL=ee` 使用7维末端位姿增量，`FLOW_CONTROL=joint` 使用8维绝对关节目标。其他九个任务保持 `ee`，对应上表各自的末端控制器；LiftPeg和PlaceSphere是7维位姿控制，PullCube是4维位置控制，都不支持joint分支。第3、4节命令统一通过 `--control-mode "$FLOW_CONTROL"` 传入；同一份双分支PickCube数据和 `pickcube.yaml` 可分别训练两种控制方式。两次训练使用不同的 `FLOW_EXPERIMENT` 和输出目录，`FLOW_DATA` 可以指向同一个文件。Joint 控制下的点云矢量距离仍按实际 TCP 计算，state仍为28维。
 已有单分支 PickCube 保持示范可复用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照数据为同目录的 `pickcube-joint-hold-v6.h5`，设置 `FLOW_CONTROL=joint`；显式选择控制方式后也可使用 `pickcube.yaml`。旧实验恢复需使用原目录保存的配置。
 更换目录或文件名不会改变任务；已有 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
 本文命令显式传 `--env-id "$FLOW_TASK"`，任务不匹配时会报错。
 
 Panda/PandaWristCam 的状态为9维 qpos + 9维 qvel + 7维基座系 TCP 位姿，共25维；PandaStick 为7+7+7，共21维，没有夹爪。
-PickCube和PullCube各提供3维基座系指定目标位置，共28维；PullCube的目标圆盘很薄，显式目标位置避免依赖点云中的目标标记。
-LiftPeg和PlaceSphere只使用25维本体状态；PlaceSphere的容器由点云描述，不将bin_pos、球的真值位姿或is_grasped输入模型。
-所有任务均不加入RGB或隐藏物体位姿。Panda的state索引0–8为qpos、9–17为qvel、18–24为TCP的xyz＋wxyz；Pick/Pull的25–27为目标位置。
-每帧仍为 `[512,4]` TCP 相对 XYZ 与距离，经点云编码器后与 state MLP 输出拼接；点云颜色只是可视化着色。
-7维动作含位置、旋转增量和夹爪，DrawTriangle 的3维动作只有位置增量。Peg 保留腕部相机，合并相机点云后总共采样512点。
+PickCube、PullCube和PickSingleYCB各提供3维基座系指定目标位置，共28维；PullCube的目标圆盘很薄，显式目标位置避免依赖点云中的目标标记。
+LiftPeg、PlaceSphere和PullCubeTool只使用25维本体状态；PlaceSphere的容器由点云描述，不将bin_pos、球的真值位姿或is_grasped输入模型。
+所有任务均不加入RGB或隐藏物体位姿。Panda的state索引0–8为qpos、9–17为qvel、18–24为TCP的xyz＋wxyz；PickCube/PullCube/PickSingleYCB的25–27为目标位置。
+每帧为 `[N,4]` TCP 相对 XYZ 与距离，N由录制参数 `--num-points` 指定（默认512），经点云编码器后与 state MLP 输出拼接；点云颜色只是可视化着色。
+7维动作含位置、旋转增量和夹爪，DrawTriangle 的3维动作只有位置增量。Peg 保留腕部相机，合并相机点云后总共采样N点。
 
 | 变量 | 可填内容 / 示例 | 作用 |
 | --- | --- | --- |
@@ -98,7 +102,7 @@ LiftPeg和PlaceSphere只使用25维本体状态；PlaceSphere的容器由点云�
 | `PIP_CONSTRAINT` | 已生成的 `constraints-ppu.txt` 文件路径 | 保护框架依赖版本 |
 | `MS_ASSET_DIR` / `MPLCONFIGDIR` | 可写目录路径 | 资产与 Matplotlib 缓存位置 |
 | `OMP_NUM_THREADS` / `MKL_NUM_THREADS` / `OPENBLAS_NUM_THREADS` | 正整数，本环境沿用 `1` | CPU 数值库线程数 |
-| `FLOW_TASK` | 上表八个完整任务名之一，如 `PullCube-v1` | 选择任务，显式校验数据和 checkpoint |
+| `FLOW_TASK` | 上表十个完整任务名之一，如 `PullCube-v1` | 选择任务，显式校验数据和 checkpoint |
 | `FLOW_EXPERIMENT` | 自定名称，如 `first-v1`、`camera-v2` | 区分新实验，避免覆盖输出 |
 | `FLOW_CONTROL` | `ee`；PickCube也可填 `joint` | 训练选择数据控制分支，推理核对模型控制方式；恢复时保持原值 |
 | `FLOW_CONFIG` | 上表对应 YAML 的完整路径 | 正式模型结构与训练配置；由 case 自动设置 |
@@ -138,7 +142,7 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 未填写 `--max-steps` 时按第1.2节任务表选择上限，不把其他任务也固定为200步。
 录制专家使用 `pd_joint_pos`，目标控制器按任务表选择。转换仅恢复初始场景，之后真实执行动作并重新判断最终成功。
-PickCube 默认同时保存 `ee`（v5，7维末端位姿增量）与 `joint`（v6，8维关节绝对目标）两个分支，共用一次生成的原始专家轨迹。两者分别从相同初始状态真实回放、重新采集观测，到点后保持固定目标40步；只有两个分支均成功且保持稳定的源 episode 才收录。它们的动作步数可能不同，不能共用一条观测序列。`--hold-steps` 调整保持长度；`--control-mode ee` / `joint` 只录制一个分支，仍兼容完整控制器名称。其他七个任务使用各自的单控制器，只支持ee别名或对应的完整末端控制器名称。诊断另存 `task_metrics`，不输入模型。
+PickCube 默认同时保存 `ee`（v5，7维末端位姿增量）与 `joint`（v6，8维关节绝对目标）两个分支，共用一次生成的原始专家轨迹。两者分别从相同初始状态真实回放、重新采集观测，到点后保持固定目标40步；只有两个分支均成功且保持稳定的源 episode 才收录。它们的动作步数可能不同，不能共用一条观测序列。`--hold-steps` 调整保持长度；`--control-mode ee` / `joint` 只录制一个分支，仍兼容完整控制器名称。其他九个任务使用各自的单控制器，只支持ee别名或对应的完整末端控制器名称。诊断另存 `task_metrics`，不输入模型。
 
 LiftPeg、PlaceSphere、PullCube默认在成功后真实保持20步，并检查保持期间持续成功；第一批Push/Stack/Peg/Draw默认0步，暂不支持非零保持。
 LiftPeg的示范还要求杆已释放且静止。PullCube保持时将机械臂位置增量置零并保留夹爪状态，避免继续重复推动动作。
@@ -177,7 +181,7 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 
 | 参数 | 默认 / 必填 | 可填内容与示例 | 意义和约束 |
 | --- | --- | --- | --- |
-| `--env-id` | 生成默认 `PickCube-v1`；转换从来源 JSON 读取 | 第1.2节八个完整任务名之一，如 `PullCube-v1` | 显式填写时核对真实来源任务；只改文件名不会改变任务 |
+| `--env-id` | 生成默认 `PickCube-v1`；转换从来源 JSON 读取 | 第1.2节十个完整任务名之一，如 `PullCube-v1` | 显式填写时核对真实来源任务；只改文件名不会改变任务 |
 | `--generate` | 与 `--source` 二选一 | 正整数，如 `120`、`200` | 要生成的成功原始轨迹数；须不小于 `--count` |
 | `--source` | 与 `--generate` 二选一 | 已存在的原始 `.h5` 路径 | 旁边须有同名 `.json`，环境、机器人及控制模式须受支持 |
 | `--output` | 必填 | 新的 `.h5` 路径，如 `"$FLOW_DATA"` | 转换后的训练数据位置；已有同名数据或清单时拒绝覆盖 |
@@ -185,9 +189,9 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 | `--start-seed` | `0` | 非负整数，如 `0`、`100` | 原始轨迹生成的起始种子；source 模式沿用原始元信息 |
 | `--max-attempts` | `100` | 正整数，如 `300`、`2000` | 生成阶段最多尝试次数；应不小于 generate，并预留失败余量 |
 | `--max-steps` | 按第1.2节任务表 | 整数且 ≥16，如 `200`、`400`、`500`；Draw不得超过300 | 环境单局步数上限及转换回放上限；专家超限按失败重试 |
-| `--num-points` | `512` | 128～4096的整数，如 `512`、`1024` | 当前预采样设置下，每帧 FPS 保留的点数 |
+| `--num-points` | `512` | 128～4096的整数，如 `512`、`1024`、`2048` | 当前预采样设置下，每帧 FPS 保留的点数 |
 | `--control-mode` | PickCube默认 `both`；其他任务默认各自末端控制器 | `both`、`ee`、`joint`，以及完整控制器名称 | both/joint只支持PickCube；其余任务填ee或对应的完整末端控制器名称 |
-| `--hold-steps` | PickCube 40；LiftPeg/PlaceSphere/PullCube 20；其余0 | 非负整数，如 `20`、`40`、`0` | 成功后实际保持并检查持续成功；第一批Push/Stack/Peg/Draw只能填0 |
+| `--hold-steps` | PickCube 40；LiftPeg/PlaceSphere/PullCube/PullCubeTool/PickSingleYCB 20；其余0 | 非负整数，如 `20`、`40`、`0` | 成功后实际保持并检查持续成功；第一批Push/Stack/Peg/Draw只能填0 |
 | `--save-video` / `--no-save-video` | 默认开启抽样录像 | 无参数开关 | 关闭时所有轨迹都不录制场景视频 |
 | `--video-every` | `10` | 正整数，如 `10`、`1` | 按成功保存编号每N条抽1条，第1条先录；1表示每条，失败不占名额 |
 | `--video-dir` | `<输出名>-videos-full` | 新目录路径 | 分支视频分别存入ee/joint子目录；拒绝复用非空目录 |
@@ -210,14 +214,16 @@ CLI 中的裁剪参数写成 `--crop-min 0.44 -0.23 -0.03`，不要写成 YAML �
 | LiftPegUpright-v1 | `(0.30,-0.35,0.50)` | `(0,0,0.15)` | 256×256 / 65° | `(0.32,-0.30,-0.03)` | `(0.92,0.30,0.60)` |
 | PlaceSphere-v1 | `(0.25,-0.30,0.35)` | `(0,0,0.04)` | 256×256 / 60° | `(0.43,-0.23,-0.03)` | `(0.83,0.23,0.45)` |
 | PullCube-v1 | `(0.30,0.30,0.35)` | `(-0.12,0,0.06)` | 256×256 / 65° | `(0.20,-0.25,-0.03)` | `(0.85,0.25,0.45)` |
+| PullCubeTool-v1 | `(0.30,-0.40,0.60)` | `(-0.10,-0.05,0.06)` | 256×256 / 75° | `(0.25,-0.40,-0.03)` | `(0.95,0.20,0.55)` |
+| PickSingleYCB-v1 | `(0.30,-0.35,0.55)` | `(0,0,0.20)` | 256×256 / 65° | `(0.32,-0.30,-0.03)` | `(0.92,0.30,0.65)` |
 
 Peg 还保留安装在 `camera_link` 上的128×128、90°腕部相机。
-后续最多4096点预采样与 FPS 仍会减少点数；512是合并后整个场景的总点数，不是各物体或各相机分别512点。
+后续最多4096点预采样与 FPS 仍会减少点数；N是合并后整个场景的总点数，不是各物体或各相机分别N点，默认N=512。
 DrawTriangle 的轮廓/画迹辨识与 FPS 漏点需通过录像和训练实验评估。
 
 修改相机、点数、裁剪或尺度后，重新转换原始轨迹或生成新数据，并从头训练匹配模型。
-PickCube 新数据使用 v5 契约（7维位姿保持）或 v6（8维关节绝对目标），第一批Push/Stack/Peg/Draw使用v3，第二批LiftPeg/PlaceSphere/PullCube使用v7；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。
-v5/v6/v7还记录真实动作范围和末尾采样规则：所有真实状态均可成为当前观测；v5/v7的增量动作尾部填零机械臂动作并保持夹爪，v6的绝对关节动作重复最终目标。LiftPeg的v7契约另记录本地修正后的直立成功判定。
+PickCube 新数据使用 v5 契约（7维位姿保持）或 v6（8维关节绝对目标），第一批Push/Stack/Peg/Draw使用v3，第二批LiftPeg/PlaceSphere/PullCube使用v7，第三批PullCubeTool/PickSingleYCB使用v8；均保存完整相机参数，评估及视频回放按 checkpoint/数据创建环境。
+v5/v6/v7/v8还记录真实动作范围和末尾采样规则：所有真实状态均可成为当前观测；v5/v7/v8的增量动作尾部填零机械臂动作并保持夹爪，v6的绝对关节动作重复最终目标。LiftPeg的v7契约另记录本地修正后的直立成功判定。v8另记录环境参数；PickSingleYCB固定 `model_ids=["004_sugar_box"]`，原始数据缺少该声明或使用其他物体时拒绝导入。
 历史 PickCube v1/v2 读取路径保留，继续使用4维平移动作；v1 模型还恢复旧128×128相机和旧范围。恢复旧实验必须沿用旧数据及训练目录保存的配置，旧权重不能直接切换成7维。
 历史 v4 的7维模型也保留原采样规则。当前 Pick 配置要求保持示范的新契约，v4恢复训练仍使用原配置。`evaluate.py --n-action-steps 2` 可直接比较旧模型的短动作块，不需要重训；`--save-trace` 保存逐步距离/速度/抓取诊断。完整实验与新训练命令见 [稳定保持报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
 
@@ -303,6 +309,31 @@ PlaceSphere专家按球半径和容器底厚计算放置高度，并检查运动
 验证中PullCube首条88帧仍有2帧方块未被FPS选中；PlaceSphere抽查帧中球只有4–6点，需在正式训练中评估精确放置效果。
 完整命令与检查结果见 [第二批使用说明](examples/baselines/flow_dp3/RIGID_TASKS.md) 和 [版本记录](version.md)。
 
+### 2.7 第三批：工具拉方块与固定糖盒
+
+任务分别选 `PullCubeTool-v1`、`PickSingleYCB-v1`，保持 `FLOW_CONTROL=ee`；训练、恢复、评估、可视化继续使用本文通用命令。PickSingleYCB在本项目中固定为 `004_sugar_box` 子集，不代表完整YCB物体评测。物体ID用于加载环境，不输入策略；每回合仍随机初始位置、绕竖直轴的朝向和三维目标位置。
+
+糖盒首次使用前，在同一虚拟环境中下载官方资产（不是训练数据）：
+
+```bash
+python -B -m mani_skill.utils.download_asset ycb
+```
+
+默认资产位于 `~/.maniskill/data/assets/mani_skill2_ycb/`；使用 `MS_ASSET_DIR` 时按该变量定位。缺少模型会在采集/评估前给出明确错误。PickSingleYCB专家根据物体OBB计算夹持方向，并按实际TCP—物体相对变换搬运物体原点至目标，不直接把TCP当作物体位置。
+
+| 任务 | 原生成功判定 | 示范额外验收 | 策略观测 |
+| --- | --- | --- | --- |
+| PullCubeTool-v1 | 方块与机器人基座XY距离<0.6m | 轨迹中必须出现“抓住工具且工具接触方块”，并通过末尾20步成功保持 | 25维本体state；工具和方块几何来自点云 |
+| PickSingleYCB-v1 | 物体到目标三维距离≤2.5cm，机器人静止 | 糖盒仍被抓持，且通过末尾20步成功保持；无需释放 | 25维本体state+3维基座系目标位置；目标标记对传感器隐藏 |
+
+原生评估success不增加上述示范过滤条件；工具抓取、工具接触、物体抓取和位置误差另存诊断，不能把仅有原生成功直接当成已学会工具使用。
+
+**点云数量由用户录制时指定**：`--num-points 512`、`1024`、`2048`等，默认仍为512，不按新任务强制修改；训练与推理读取数据/checkpoint保存的数量。仍使用最多4096点随机预选再FPS。更换点数需生成新数据、使用新的训练目录。
+
+当前工具环境缺少官方YCB资产且不能联网下载，糖盒专家和相机先通过长方体替代物检查；官方糖盒资产上的实际验收尚未完成，不能把替代物检查当作糖盒成功率。
+
+新增配置为 `pullcubetool.yaml`、`picksingleycb.yaml`，均要求v8契约并采用原有模型与训练起点。小规模验证的实际范围和环境限制见 [version.md](version.md)。
+
 ## 3. 完整模型训练与恢复
 
 ### 3.1 开始新的训练
@@ -326,7 +357,7 @@ python -B examples/baselines/flow_dp3/train.py \
 
 `--output` 必须为空目录或尚未存在。正式配置的完整主干为 `[512,1024,2048]`，约2.55亿参数。
 batch size 根据可用显存选择，第一次确定后恢复训练沿用同一值。
-八份正式配置是各任务的候选起点，尚未宣称经过性能调优。
+十份正式配置是各任务的候选起点，尚未宣称经过性能调优。
 state/action 归一化只统计训练 episode；点云保持契约指定的物理尺度，编码器、拼接方式、Flow DP3 损失与采样公式保持一致。
 
 单个完整 checkpoint 约4 GB，`last.pt`、`best.pt` 和临时写入均占空间。
@@ -337,7 +368,7 @@ state/action 归一化只统计训练 episode；点云保持契约指定的物�
 
 ### 3.2 继续已有训练
 
-八个任务都用下面的恢复命令。先把 `FLOW_TASK`、`FLOW_DATA`、`FLOW_RUN_ROOT` 设置为原实验的真实任务、数据和目录；
+十个任务都用下面的恢复命令。先把 `FLOW_TASK`、`FLOW_DATA`、`FLOW_RUN_ROOT` 设置为原实验的真实任务、数据和目录；
 恢复时不用第1.2节的新实验编号创建另一个目录。
 示例假定原训练使用 batch size 32、PPU 和总预算30000步；原实验不同则按原记录填写。
 如果沿用第3.1节的batch size 256，恢复命令也须填写 `--batch-size 256`；实际值见原训练的run.json。
@@ -375,7 +406,7 @@ export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.h5"
 | 参数 | 默认 / 必填 | 可填内容与示例 | 意义和约束 |
 | --- | --- | --- | --- |
 | `--config` | `examples/baselines/flow_dp3/configs/pickcube.yaml` | 已存在且格式正确的 `.yaml` 路径 | 模型结构与训练设置；自定义时复制成新配置文件 |
-| `--env-id` | 从 HDF5 契约读取 | 第1.2节八个完整任务名之一 | 可选任务校验；显式指定须与数据匹配，不能强制切换任务 |
+| `--env-id` | 从 HDF5 契约读取 | 第1.2节十个完整任务名之一 | 可选任务校验；显式指定须与数据匹配，不能强制切换任务 |
 | `--data` | 必填 | 已转换的训练 `.h5` 路径，如 `"$FLOW_DATA"` | 文件须真实存在，至少包含两条成功 episode |
 | `--control-mode` | 双分支默认ee；单分支沿用契约 | `ee`、`joint`或完整控制器名称 | 选择训练数据分支，自动设置PickCube v5/v6动作接口；推理同名参数仅核对checkpoint |
 | `--output` | 必填 | 可写目录，如 `"$FLOW_RUN_ROOT/full"` | 新训练目录须为空；恢复须是原 checkpoint 所在目录 |
@@ -403,7 +434,7 @@ cat "$FLOW_RUN_ROOT/full/run.json"
 
 ### 3.5 可选：先做小模型流程检查
 
-同一烟雾配置可用于八个任务，自动从数据契约绑定状态和动作维度。
+同一烟雾配置可用于十个任务，自动从数据契约绑定状态和动作维度。
 运行前须有至少两条成功转换示范，`smoke` 目录须为空或尚未存在；此处不使用正式配置。
 
 ```bash
@@ -463,7 +494,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | 参数 | 默认 / 必填 | 可填内容与示例 | 意义和约束 |
 | --- | --- | --- | --- |
 | `--checkpoint` | 必填 | 已存在的本项目 `.pt` 文件，如 `full/best.pt` 或 `full/last.pt` | 加载策略、归一化统计和输入契约 |
-| `--env-id` | 从 checkpoint 读取 | 第1.2节八个完整任务名之一 | 可选任务校验，显式指定须匹配权重；不能强制覆盖环境 |
+| `--env-id` | 从 checkpoint 读取 | 第1.2节十个完整任务名之一 | 可选任务校验，显式指定须匹配权重；不能强制覆盖环境 |
 | `--control-mode` | 从 checkpoint 读取 | `ee`、`joint`或完整控制器名称 | 可选控制方式校验，须与模型一致；切换控制方式需加载对应训练模型 |
 | `--device` | `cuda:0` | 只能填 `cpu` 或 `cuda:0` | 策略计算设备；评估可跨设备加载权重 |
 | `--episodes` | `10` | 正整数，如 `20`、`50`、`100` | 独立评估局数 |
@@ -496,7 +527,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 
 ## 5. YAML 参数：可以填什么
 
-`--config` 使用的 YAML 顶层为 `policy` 和 `training`。八份正式配置共享下表网络与训练起点，任务维度及半径按表中任务差异填写；
+`--config` 使用的 YAML 顶层为 `policy` 和 `training`。十份正式配置共享下表网络与训练起点，任务维度及半径按表中任务差异填写；
 烟雾配置采用第3.5节的小模型设置。“可填值”是格式及有效范围，不保证所有组合都有相同性能。
 改变配置时开始新的训练，恢复原运行保持原配置。
 
@@ -526,7 +557,7 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | `noise_scale` | `1.0` | 有限正数，如 `1.0` | 训练起始与推理初始噪声尺度 |
 | `sigma_var` | `0.0` | 有限非负数，如 `0.0`、`0.1` | consistency 公式的额外随机扰动系数 |
 
-PickCube之外的七个任务正式配置显式记录state/action维度；`pickcube.yaml`省略state维度，位姿action维度为7，显式选择joint时自动改为8。
+PickCube之外的九个任务正式配置显式记录state/action维度；`pickcube.yaml`省略state维度，位姿action维度为7，显式选择joint时自动改为8。
 `multi_task_smoke.yaml`省略两项维度，由训练数据契约绑定。
 所有配置显式填写的维度都须与契约匹配，冲突会报错。
 编码器固定为 ee_relation_pointnetpp，输出64维，state MLP 输出64维，拼接为每帧128维；默认两帧展开为256维策略条件。
@@ -535,7 +566,7 @@ PickCube之外的七个任务正式配置显式记录state/action维度；`pickc
 
 | 字段 | 当前值 | 可填值 / 格式 | 意义及限制 |
 | --- | --- | --- | --- |
-| `required_contract_version` | Pick位姿5；Pick关节6；LiftPeg/PlaceSphere/PullCube 7 | 可省略，正整数 | 新Pick及第二批配置要求匹配的保持/采样契约；第一批四项及旧保存配置可不含此项 |
+| `required_contract_version` | Pick位姿5；Pick关节6；LiftPeg/PlaceSphere/PullCube 7；PullCubeTool/PickSingleYCB 8 | 可省略，正整数 | 新Pick及第二、三批配置要求匹配的保持/采样契约；第一批四项及旧保存配置可不含此项 |
 | `seed` | `42` | 非负整数，如 `42`、`123` | 训练随机流与 episode 划分种子 |
 | `batch_size` | `32` | 正整数，如 `8`、`16`、`32` | 每次更新的窗口数；CLI 可覆盖，恢复须保持原值 |
 | `steps` | `30000` | 正整数，如 `10000`、`30000` | 默认总更新数和学习率调度长度 |

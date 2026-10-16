@@ -43,6 +43,9 @@ class PickSingleYCBEnv(BaseEnv):
 
     **Additional Notes**
     - On GPU simulation, in order to collect data from every possible object in the YCB database we recommend using at least 128 parallel environments or more, otherwise you will need to reconfigure in order to sample new objects.
+    - ``model_ids=["004_sugar_box"]`` restricts scene sampling to the sugar box. Omitting
+      ``model_ids`` retains the full default object set. Model IDs are environment
+      configuration, not additional policy observations.
     """
 
     _sample_video_link = "https://github.com/mani-skill/ManiSkill/raw/main/figures/environment_demos/PickSingleYCB-v1_rt.mp4"
@@ -58,6 +61,7 @@ class PickSingleYCBEnv(BaseEnv):
         robot_init_qpos_noise=0.02,
         num_envs=1,
         reconfiguration_freq=None,
+        model_ids=None,
         **kwargs,
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -77,6 +81,15 @@ class PickSingleYCBEnv(BaseEnv):
                 ]  # NOTE (arth): ignore these non-graspable/hard to grasp ycb objects
             ]
         )
+        if model_ids is not None:
+            if (not isinstance(model_ids, (list, tuple)) or not model_ids
+                    or any(not isinstance(model, str) for model in model_ids)
+                    or len(set(model_ids)) != len(model_ids)):
+                raise ValueError("model_ids must be a nonempty list of unique model ID strings")
+            unknown = set(model_ids) - set(self.all_model_ids)
+            if unknown:
+                raise ValueError(f"Unknown or excluded YCB model IDs: {sorted(unknown)}")
+            self.all_model_ids = np.array(model_ids)
         if reconfiguration_freq is None:
             if num_envs == 1:
                 reconfiguration_freq = 1
@@ -121,6 +134,8 @@ class PickSingleYCBEnv(BaseEnv):
         # randomize the list of all possible models in the YCB dataset
         # then sub-scene i will load model model_ids[i % number_of_ycb_objects]
         model_ids = self._batched_episode_rng.choice(self.all_model_ids, replace=True)
+        # Scene identity for replay validation and reports, never a policy input.
+        self.model_ids = tuple(str(model_id) for model_id in model_ids)
         if (
             self.num_envs > 1
             and self.num_envs < len(self.all_model_ids)

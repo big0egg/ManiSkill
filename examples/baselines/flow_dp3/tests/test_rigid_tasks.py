@@ -51,7 +51,8 @@ class RigidTaskTests(unittest.TestCase):
         torch.testing.assert_close(adapted["state"][0, 25:], torch.tensor([.315, -.1, .001]), atol=1e-6, rtol=1e-6)
 
     def test_new_tasks_include_terminal_and_zero_delta_tail(self):
-        for env_id in ("LiftPegUpright-v1", "PlaceSphere-v1", "PullCube-v1"):
+        for env_id in ("LiftPegUpright-v1", "PlaceSphere-v1", "PullCube-v1",
+                       "PullCubeTool-v1", "PickSingleYCB-v1"):
             with self.subTest(task=env_id), tempfile.TemporaryDirectory() as directory:
                 contract = self.contract(env_id)
                 path = Path(directory)/"data.h5"
