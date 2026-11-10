@@ -87,9 +87,8 @@ def ball_query_indices(source, centers, radius, neighbors):
 
 class _ChannelLayerNorm(nn.LayerNorm):
     def forward(self, value):
-        # PAI torch 2.0 CPU BF16 LayerNorm backward cannot mix BF16 inputs with
-        # FP32 affine parameters. Compute normalization in FP32, then restore
-        # activation dtype; casts keep both input and parameter gradients.
+        # Normalize low-precision activations with FP32 affine parameters in
+        # FP32, then restore the activation dtype. Casts preserve gradients.
         work_dtype = torch.float32 if value.dtype in (torch.float16, torch.bfloat16) else value.dtype
         result = torch.nn.functional.layer_norm(
             value.to(work_dtype), self.normalized_shape,

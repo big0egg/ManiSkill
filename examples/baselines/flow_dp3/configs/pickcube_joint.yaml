@@ -33,5 +33,5 @@ training:
   val_ratio: 0.2
   val_every: 100
   val_batches: 4
-  checkpoint_every: 100
+  checkpoint_every: 1000
   grad_clip: 1.0

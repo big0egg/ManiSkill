@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/baselines/flow_dp3'))
 from control_modes import select_dataset_group
-DEFAULT_DATASET = ROOT / 'testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5'
+DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5'
 
 
 @dataclass

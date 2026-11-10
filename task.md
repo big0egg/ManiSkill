@@ -248,7 +248,7 @@ DP 的 `diffusion_policy/evaluate.py` 是训练入口调用的辅助函数，当
 | 参数 | DP 参考 | 当前 FM | FM 推荐起点 |
 | --- | --- | --- | --- |
 | `steps` | PickCube 30,000 | 30,000 | 保持 30,000；按任务使用 7.1 表 |
-| `batch_size` | state 1024，RGB 256 | 32 | 当前大模型先保持 32；新实验可测 64，先验证内存与吞吐量 |
+| `batch_size` | state 1024，RGB 256 | YAML为32，CLI覆盖为2 | 本机12GB从2开始，增大前先实测显存与吞吐量 |
 | `lr` | `1e-4` | `1e-4` | 保持 |
 | `betas` | `[0.95,0.999]` | 相同 | 保持 |
 | `weight_decay` | `1e-6` | 相同 | 保持 |
@@ -259,7 +259,7 @@ DP 的 `diffusion_policy/evaluate.py` 是训练入口调用的辅助函数，当
 | `val_ratio` | 无独立划分 | 0.2 | 保持；正式对比确保划分后训练集有 100 条 |
 | `val_every` | 无离线验证周期 | 100 | 新实验候选 500；旧实验恢复保持原配置 |
 | `val_batches` | 不适用 | 4 | 新实验候选 16；更完整覆盖可另做离线评估 |
-| `checkpoint_every` | 按成功率保存 | 100 | 新实验候选 1000，减少大模型 I/O |
+| `checkpoint_every` | 按成功率保存 | 1000 | 保留1000步定期保存，验证改善和末步仍额外保存 |
 | 闭环评估频率 | 5000 次更新 | 训练入口未集成 | 每 5000 次更新手动评估并登记结果 |
 | 模型选择 | 最佳闭环成功率 | 最低离线 val loss | 分开保留离线最佳与闭环最佳；最终用独立测试场景报告 |
 | U-Net 宽度 | `[64,128,256]` | `[512,1024,2048]` | 先完成当前模型；另开新实验测 `[128,256,512]`，不是直接替换当前模型 |
@@ -305,60 +305,32 @@ DP 的 `diffusion_policy/evaluate.py` 是训练入口调用的辅助函数，当
 | 动作范围 | 执行前裁剪 `[-1,1]` | 保持，记录预测与实际执行裁剪比例 |
 | 指标 | once / end 成功率、推理时间、裁剪比例 | 全部报告；说明设备、后端和每局上限 |
 
-训练种子控制模型初始化和训练采样，环境种子控制测试场景，`policy_seed` 控制推理动作噪声，三者应分别记录。同一个 seed 数值在 CPU 与 PPU 上不保证相同的随机动作序列。
+训练种子控制模型初始化和训练采样，环境种子控制测试场景，`policy_seed` 控制推理动作噪声，三者应分别记录。同一个 seed 数值在 CPU 与 ROCm 显卡 上不保证相同的随机动作序列。
 
 ## 8. 可审阅的运行命令
 
-下面仅展示已有入口能够接受的命令，没有执行。先按 [README](README.md) 初始化当前 PPU SDK、虚拟环境和软件 Vulkan；不要仅为了运行官方示例就替换已经可用的 PPU PyTorch。
+下面仅展示已有入口能够接受的命令，没有执行。先按 [README](README.md) 初始化本地 ROCm 环境和软件 Vulkan，主运行流程见 [introduce.md](introduce.md)。
 
-### 8.1 官方 PickCube DP 的下载、回放、训练示例
+### 8.1 本地初始化与流程入口
 
-这是 DP 的 CPU 仿真示例；模型计算由 DP 入口选择可用设备。需要准备 DP 自己的依赖环境。示例明确拼接路径，避免原回放脚本中部分路径缺少 `/`。
-
-```bash
-cd /mnt/workspace/ManiSkill
-
-python -m mani_skill.utils.download_demo PickCube-v1
-
-# 默认下载目录；如果设置了 MS_ASSET_DIR，使用对应的实际 demos 目录。
-DP_DEMO_ROOT="$HOME/.maniskill/demos"
-
-python -m mani_skill.trajectory.replay_trajectory \
-  --traj-path "$DP_DEMO_ROOT/PickCube-v1/motionplanning/trajectory.h5" \
-  --use-first-env-state \
-  -c pd_ee_delta_pos -o state -b physx_cpu \
-  --save-traj --num-envs 10
-
-cd examples/baselines/diffusion_policy
-
-python train.py \
-  --env-id PickCube-v1 \
-  --demo-path "$DP_DEMO_ROOT/PickCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5" \
-  --control-mode pd_ee_delta_pos --sim-backend physx_cpu \
-  --num-demos 100 --max-episode-steps 100 \
-  --total-iters 30000 --batch-size 1024 --lr 0.0001 \
-  --obs-horizon 2 --pred-horizon 16 --act-horizon 8 \
-  --eval-freq 5000 --num-eval-episodes 100 --num-eval-envs 10 \
-  --seed 1 --exp-name dp-pickcube-state-reference
-```
-
-RGB 示例把回放观测改为 `-o rgb`，数据路径改为 `trajectory.rgb.pd_ee_delta_pos.physx_cpu.h5`，入口改为 `train_rgbd.py --obs-mode rgb`，batch 改为 256。W&B 是可选项，需要时显式增加 `--track`。
+官方 DP 的任务和训练参数保留在前文作算法参考。本机只使用 README 中的 ROCm 部署流程，数据录制、训练和评估命令以 introduce.md 为准；不直接照搬上游大 batch 配置。
 
 ### 8.2 当前 FM 使用现有数据的新训练
 
 保留当前模型和配置，先完成一套 PickCube 实验。下面输出目录需为空或尚不存在；不要与已有训练混用。
 
 ```bash
-cd /mnt/workspace/ManiSkill
+cd /home/bigegg/ManiSkill
 
 python -B examples/baselines/flow_dp3/train.py \
   --config examples/baselines/flow_dp3/configs/pickcube.yaml \
-  --env-id PickCube-v1 --data testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5 \
-  --output .runtime/flow_dp3/PickCube-v1-hold-v5/full \
-  --device cuda:0 --steps 30000 --batch-size 32
+  --env-id PickCube-v1 --control-mode ee \
+  --data .runtime/flow_dp3/PickCube-v1-local-b2-v1.h5 \
+  --output .runtime/flow_dp3/PickCube-v1-local-b2-v1/full \
+  --device cuda:0 --steps 30000 --batch-size 2
 ```
 
-此命令按现有 100 条数据划分为 80 条训练 / 20 条验证，不能在结果表写成“100 条训练示范”。完整训练入口会写出配置、数据指纹、运行元数据、逐步指标和 `best.pt / last.pt`。
+先按 introduce.md 生成对应的100条成功数据，命令会划分为80条训练 / 20条验证，不能在结果表写成“100 条训练示范”。完整训练入口会写出配置、数据指纹、运行元数据、逐步指标和 `best.pt / last.pt`。
 
 准备下一轮“100 条训练 + 25 条验证”的本地生成数据时，可单独审阅以下命令；它与上面的现有数据实验是两个数据版本：
 
@@ -375,17 +347,19 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 
 ### 8.3 恢复已有 FM 实验
 
+下面恢复第8.2节尚未完成的本地训练，读取原输出目录保存的配置：
+
 ```bash
 python -B examples/baselines/flow_dp3/train.py \
-  --config .runtime/flow_dp3/pickcube-001/full/config.yaml \
-  --data .runtime/flow_dp3/pickcube-100-v2.h5 \
-  --output .runtime/flow_dp3/pickcube-001/full \
-  --resume .runtime/flow_dp3/pickcube-001/full/last.pt \
-  --device cuda:0 --steps 30000
+  --config .runtime/flow_dp3/PickCube-v1-local-b2-v1/full/config.yaml \
+  --env-id PickCube-v1 --control-mode ee \
+  --data .runtime/flow_dp3/PickCube-v1-local-b2-v1.h5 \
+  --output .runtime/flow_dp3/PickCube-v1-local-b2-v1/full \
+  --resume .runtime/flow_dp3/PickCube-v1-local-b2-v1/full/last.pt \
+  --device cuda:0 --batch-size 2 --steps 30000 --wandb-mode disabled
 ```
 
-`--steps 30000` 是恢复后达到总计 30,000 次更新，不是再增加 30,000。恢复时配置、数据指纹、batch size 和设备类型需要匹配，输出目录必须是原训练目录。如果 checkpoint 已达到 30,000，入口会拒绝这个目标。
-历史 PickCube v1/v2/v4 恢复必须使用原训练目录保存的配置；当前 `pickcube.yaml` 要求 v5 保持示范，不能用于恢复旧实验。
+`--steps 30000`是累计达到30,000次更新，不是再增加30,000。配置、数据指纹、batch size和计算环境必须匹配，输出目录仍为原训练目录；如果已达到30,000步，入口会拒绝这个目标。历史实验始终使用各自保存配置，不以当前候选配置覆盖。
 
 ### 8.4 FM 独立测试示例
 
@@ -393,11 +367,11 @@ python -B examples/baselines/flow_dp3/train.py \
 
 ```bash
 python -B examples/baselines/flow_dp3/evaluate.py \
-  --checkpoint .runtime/flow_dp3/pickcube-001/full/best.pt \
+  --checkpoint .runtime/flow_dp3/PickCube-v1-local-b2-v1/full/best.pt \
   --device cuda:0 \
   --episodes 100 --start-seed 2000 --policy-seed 42 \
   --max-steps 100 \
-  --output .runtime/flow_dp3/pickcube-001/eval-task-test-100steps.json
+  --output .runtime/flow_dp3/PickCube-v1-local-b2-v1/eval-task-test-100steps.json
 ```
 
 200 步补充评估需改 `--max-steps 200` 并使用不同输出文件。录像时额外指定 `--save-video`，建议单独运行少量局数。报告文件不得已存在。
@@ -413,7 +387,7 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 | 训练 | 更新数、batch、学习率、调度、参数量、训练种子、实际耗时 |
 | 模型选择 | 离线最低 loss / 闭环最佳成功率，checkpoint 对应更新数 |
 | 推理 | EMA / raw、采样器、采样次数、观测长度、预测长度、执行长度 |
-| 评估 | CPU / GPU / PPU 计算设备、物理后端、环境种子、策略种子、局数、每局上限 |
+| 评估 | CPU / ROCm 显卡计算设备、物理后端、环境种子、策略种子、局数、每局上限 |
 | 结果 | `success_once`、`success_end`、各训练种子结果及均值 / 波动、推理延迟、动作裁剪比例 |
 
 DP state 使用的真值信息与视觉策略不同；点云 FM 与 RGB DP 也有模态差异。对比表应显式列出观测，避免把不同输入条件归结为生成算法的优劣。

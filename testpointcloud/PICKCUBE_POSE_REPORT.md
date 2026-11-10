@@ -67,13 +67,13 @@ python -B examples/baselines/flow_dp3/train.py \
 ```bash
 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-.venv-ppu/bin/python -B examples/baselines/flow_dp3/prepare_demos.py \
+.runtime/env-rocm/bin/python -B examples/baselines/flow_dp3/prepare_demos.py \
   --env-id PickCube-v1 \
   --source .runtime/flow_dp3/PickCube-v1-first-v1.raw.h5 \
   --count 100 --num-points 512 --length-scale 1.0 \
   --output .runtime/flow_dp3/PickCube-v1-pose-v4-reproduction.h5
 
-.venv-ppu/bin/python -B testpointcloud/verify_pickcube_pose_data.py \
+.runtime/env-rocm/bin/python -B testpointcloud/verify_pickcube_pose_data.py \
   .runtime/flow_dp3/PickCube-v1-pose-v4-reproduction.h5 \
   --output testpointcloud/runs/pickcube-pose-v4/reproduction-verification.json
 ```

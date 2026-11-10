@@ -106,10 +106,10 @@ def train(args):
         torch.set_rng_state(checkpoint["torch_rng"])
         if device.type == "cuda":
             if checkpoint["cuda_rng"] is None:
-                raise ValueError("不能精确地将 CPU 训练恢复到 PPU；请使用同一计算设备")
+                raise ValueError("不能精确地将 CPU 训练恢复到显卡；请使用同一计算设备")
             torch.cuda.set_rng_state_all(checkpoint["cuda_rng"])
         elif checkpoint["cuda_rng"] is not None:
-            raise ValueError("不能精确地将 PPU 训练恢复到 CPU")
+            raise ValueError("不能精确地将显卡训练恢复到 CPU")
         step = checkpoint["step"]
         best_validation = checkpoint["best_validation"]
         if output != Path(args.resume).resolve().parent:

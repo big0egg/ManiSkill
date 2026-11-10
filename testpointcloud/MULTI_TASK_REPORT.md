@@ -138,7 +138,7 @@ Draw使用`diagnostic-base-interface.h5`；各源文件及JSON的SHA256均保存
 从项目根目录复现，例如Push完整小批量（必须使用新的输出目录，程序拒绝覆盖）：
 
 ```bash
-.venv-ppu/bin/python -B testpointcloud/multi_task_experiment.py \
+.runtime/env-rocm/bin/python -B testpointcloud/multi_task_experiment.py \
   --tasks PushCube-v1 --cameras baseline wide_low_left256_75 --frames 0 \
   --output testpointcloud/runs/my-push-validation
 ```

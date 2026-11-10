@@ -96,7 +96,7 @@ v5/v6契约记录控制器动作范围和采样规则；v6关节范围从Panda U
 
 8步的seed1016曾成功9帧，方块最小目标误差23.38mm，最终38.60mm；最终关节速度只有0.0433rad/s且还抓着方块。该局失败直接表现为位置误差超限，不能归结为“机械臂一直没停稳”。2步在另外两局曾成功，但最终也离开目标范围。
 
-所以保留8步默认值，先补保持数据；2步覆盖参数保留供新训练后再比较。本次每局重置随机流且使用CPU，与原先整次评估共享随机流的PPU录像不是完全相同协议，不能直接用本次数字宣称原模型成功率变化。
+所以保留8步默认值，先补保持数据；2步覆盖参数保留供新训练后再比较。本次每局重置随机流且使用CPU，与原先整次评估共享随机流的录像不是完全相同协议，不能直接用本次数字宣称原模型成功率变化。
 
 [配对统计与逐场景结果](runs/pickcube-stability/action-block-comparison.json)、[8步报告](runs/pickcube-stability/existing-block8.json)、[2步报告](runs/pickcube-stability/existing-block2.json)。逐步轨迹文件为对应的 `*-trace.json`。
 
@@ -131,9 +131,9 @@ v5/v6契约记录控制器动作范围和采样规则；v6关节范围从Panda U
 
 ## 8. 新正式训练与复现
 
-本次工具会话初始化PPU SDK后，`torch.cuda.is_available()`仍为False；此前用户DSW训练记录可使用PPU，这不代表用户终端也无法使用。当前磁盘约6GiB可用；现有正式checkpoint约3.9GiB，保存best/last及原子临时文件需约12GiB余量。故未启动新的30,000步正式训练。
+本报告未启动新的30,000步正式训练。完整 checkpoint 约3.9GiB，保存 best/last 及原子临时文件需预留约12GiB空间。当前本地环境部署和短流程验收见根目录 README，历史统计不代表新的正式训练结果。
 
-先按 introduce 第1.1节初始化可访问PPU的终端，并为新训练输出准备足够空间。以下两组独立训练使用相同主干、batch size和更新数；不会续写旧实验：
+先按 introduce 第1.1节初始化本地 ROCm 环境，并为新训练输出准备足够空间。以下两组独立训练使用相同主干、batch size和更新数；不会续写旧实验：
 
 ```bash
 python -B examples/baselines/flow_dp3/train.py \
@@ -141,14 +141,14 @@ python -B examples/baselines/flow_dp3/train.py \
   --env-id PickCube-v1 \
   --data testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5 \
   --output testpointcloud/runs/pickcube-stability/pose-full \
-  --device cuda:0 --steps 30000 --batch-size 32 --wandb-mode disabled
+  --device cuda:0 --steps 30000 --batch-size 2 --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/train.py \
   --config examples/baselines/flow_dp3/configs/pickcube_joint.yaml \
   --env-id PickCube-v1 \
   --data testpointcloud/runs/pickcube-stability/pickcube-joint-hold-v6.h5 \
   --output testpointcloud/runs/pickcube-stability/joint-full \
-  --device cuda:0 --steps 30000 --batch-size 32 --wandb-mode disabled
+  --device cuda:0 --steps 30000 --batch-size 2 --wandb-mode disabled
 ```
 
 两个实验都用相同场景/策略种子评估，先每次执行8步，再用新输出名比较2步。不要用旧v4 checkpoint的 `--resume` 来训练新v5数据；恢复校验会拒绝数据/契约改变。
@@ -178,4 +178,4 @@ python -B examples/baselines/flow_dp3/evaluate.py \
   --wandb-mode disabled
 ```
 
-本报告的对照使用 `--device cpu`、OMP线程4；改变为PPU可能引入数值差异。报告中的科学图可由 `summarize_pickcube_action_blocks.py` 复现，数据覆盖统计由 `analyze_pickcube_stability.py` 复现。正式新训练完成后，才能判断保持修复能提升多少成功率，以及关节动作是否值得作为默认接口。
+本报告的对照使用 `--device cpu`、OMP线程4；切换到 ROCm 显卡可能引入数值差异。报告中的科学图可由 `summarize_pickcube_action_blocks.py` 复现，数据覆盖统计由 `analyze_pickcube_stability.py` 复现。正式新训练完成后，才能判断保持修复能提升多少成功率，以及关节动作是否值得作为默认接口。

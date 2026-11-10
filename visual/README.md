@@ -3,12 +3,13 @@
 PickCube 新录制支持同一 HDF5 内的 `ee` / `joint` 双分支。`pointcloud.py` 和 `export_videos.py` 均可使用 `--control-mode ee` 或 `--control-mode joint`，默认ee；旧单分支文件继续沿用其契约。专家录制默认每10条成功示范抽1条完整场景 MP4，第1/11/21……条录像，位于 `<数据集名称>-videos-full/{ee,joint}/`；`prepare_demos.py --video-every 1` 恢复每条录像。未录视频的轨迹仍有完整训练数据，本工具可以另行导出其点云/状态面板。使用与验证见 [双控制录制报告](../testpointcloud/DUAL_CONTROL_REPORT.md)。
 
 所有工具只读输入 HDF5，不修改训练代码、数据或 checkpoint。默认数据为
-`testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`，可通过 `--dataset` 指定其他文件。
+`.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5`，可通过 `--dataset` 指定其他文件。
 新默认数据使用256×256、60°相机，世界位置`(0.30,-0.30,0.35)`、注视`(0,0,0.12)`，
 在基座系 crop `min=(0.44,-0.23,-0.03)`、`max=(0.79,0.25,0.52)` 后执行 FPS512，
 优先保留方块与末端，允许裁掉部分机械臂；512点仍包含桌面。旧文件可显式指定，
 v1录像回放恢复旧128×128相机，v2/v4/v5/v6按契约保存的相机参数执行；v1/v2使用4维平移动作，v4/v5使用7维位姿动作，v6使用8维关节绝对目标。
-从项目根目录执行下面的命令。
+从项目根目录执行下面的命令，并先按根目录 README 第4节初始化本地环境。
+默认文件为本机3条验收示范，首次检出后可按 introduce.md 第3.6节生成；正式数据通过 `--dataset`显式选择。
 
 第一版也支持 PushCube、StackCube、PegInsertionSide、DrawTriangle 的训练 HDF5，
 通过 `--dataset` 指定对应文件，按契约读取21/25/28维状态及3/4/7/8维动作。
@@ -25,20 +26,20 @@ PullCube包含指定目标字段，会显示GOAL；LiftPeg和PlaceSphere不显�
 两个 Python 工具都支持 `--help`，也可以写成 `-h`。帮助显示后立即退出，不读取数据、不启动窗口或仿真：
 
 ```bash
-cd /mnt/workspace/ManiSkill
-.venv-ppu/bin/python -B visual/pointcloud.py --help
-.venv-ppu/bin/python -B visual/export_videos.py --help
+cd /home/bigegg/ManiSkill
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --help
+.runtime/env-rocm/bin/python -B visual/export_videos.py --help
 ```
 
 `--help` 中的 `{both,fps,distance}` 表示只能从这三个字符串中选一个；例如写
 `--export-view fps`，不要填写花括号。`PNG`、`DATASET` 等大写词是填写位置的提示，
 需要替换成实际文件路径。完整取值、默认值和示例见下方参数表。
 
-阿里云服务器上直接生成左右对照图和视频：
+在本机无需桌面窗口即可生成左右对照图和视频：
 
 ```bash
-.venv-ppu/bin/python -B visual/pointcloud.py \
-  --dataset testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py \
+  --dataset .runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5 \
   --episode 0 --frame 0 \
   --export-backend matplotlib --export-view both \
   --fps 20 \
@@ -59,27 +60,24 @@ PNG 保存第0帧，MP4 保存第0帧到该轨迹末帧。只需要图片时删�
 
 ## 1. 安装 Open3D 可视化环境
 
+先按根目录 README 建立本地 env-rocm、mesa-env 和 constraints-rocm.txt，再执行：
+
 ```bash
-cd /mnt/workspace/ManiSkill
+cd /home/bigegg/ManiSkill
 bash visual/setup_env.sh
 ```
 
-脚本创建 `.runtime/visual-venv`，复用项目和镜像已有依赖，将新增包安装到这个独立环境。
-不向 `.venv-ppu` 或系统 Python 安装包。安装时保留 PPU 框架约束及原 protobuf、click。
-Linux x86_64 使用 `open3d-cpu==0.19.0`。
+脚本使用 `.runtime/env-rocm/bin/python`在 `.runtime/visual-venv`创建可视化 venv，复用主环境框架，新增包仅安装到这个 venv。安装时使用 constraints-rocm.txt，Linux x86_64 采用 open3d-cpu==0.19.0，不额外调整主环境的日志依赖。
 
-默认阿里云源；若实例无法访问，可切换官方源：
+默认使用公共 PyPI 镜像。需要其他下载源时可通过变量指定，例如：
 
 ```bash
 VISUAL_PIP_INDEX_URL=https://pypi.org/simple/ bash visual/setup_env.sh
 ```
 
-域名解析失败时安装未完成，须先解决实例网络，再执行脚本。Open3D 交互、Open3D 离屏导出和 PLY 导出需要完成安装。
-服务器上的点云 PNG/MP4 默认使用 Matplotlib，可直接用 `.venv-ppu/bin/python`，无需安装 Open3D。
-场景视频工具使用现有 Matplotlib、ImageIO、SAPIEN，也可以直接用 `.venv-ppu/bin/python`。
+下载未完成时先处理本机网络，再重新执行脚本。Open3D 交互、Open3D 离屏导出和 PLY 导出需要安装完成；本机尚未验收 Open3D 桌面交互。
 
-在本地桌面使用时，安装 `visual/requirements.txt`，复制 `visual/` 和训练 HDF5，
-通过 `--dataset /实际路径/数据.h5` 指定数据即可。点云查看不需要 ManiSkill、PPU 或原始轨迹。
+Matplotlib 点云 PNG/MP4 和场景视频直接使用 `.runtime/env-rocm/bin/python`，无需 Open3D。单独查看已保存的点云不需要运行仿真；场景视频回放还需要主环境中的 ManiSkill、SAPIEN、原始轨迹和项目 Mesa ICD。
 
 ## 2. 点云显示与可选点击坐标
 
@@ -119,7 +117,7 @@ distance_m = features[3] * length_scale
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` | 指定输入：`--dataset /mnt/workspace/ManiSkill/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5` | 指定输入：`--dataset /home/bigegg/ManiSkill/.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5` |
 | `--episode` | 一个非负整数索引，或 HDF5 中已有的完整轨迹名称 | `0` | 索引按名称排序，从0开始；当前可填 `0`～`99`，如 `--episode 54` 或 `--episode episode_00054` |
 | `--frame` | 整数，`0`～当前轨迹的动作数 `T`，含两端 | `0` | GUI 初始帧、PNG/PLY 保存帧、MP4 起始帧；如 `--frame 30`。当前 episode 0 可填 `0`～`74`，其他轨迹长度不同 |
 | `--coordinate-frame` | 只能填 `base` 或 `relative` | `base` | `base`：机器人基座坐标系；`relative`：原点平移到当前 TCP，方向仍为基座轴。例：`--coordinate-frame relative` |
@@ -146,28 +144,28 @@ distance_m = features[3] * length_scale
 
 普通 GUI 和点击选点需要本地桌面、远程桌面或已配置的 X11 显示。
 没有 `DISPLAY`/`WAYLAND_DISPLAY` 的终端会给出提示，不能直接弹出交互窗口。
-服务器默认导出使用 Matplotlib Agg 和 ImageIO/FFmpeg，CPU 渲染，无需 `DISPLAY`、Open3D、EGL、Vulkan 或 PPU。
+无窗口点云导出使用 Matplotlib Agg 和 ImageIO/FFmpeg，CPU 绘制，无需 DISPLAY、Open3D、EGL 或 Vulkan。
 直接从训练 HDF5 生成点云，不需要原始 `.raw.h5`，也不启动仿真。
 
 ```bash
 # 指定帧的全场景左右对照 PNG；无需额外安装依赖。
-.venv-ppu/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
   --png .runtime/flow_dp3/cloud-frame30.png
 
 # 末端附近点云 PNG 和整条轨迹 MP4，可同时导出。
-.venv-ppu/bin/python -B visual/pointcloud.py --episode 0 --near-radius 1 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --episode 0 --near-radius 1 \
   --png .runtime/flow_dp3/cloud-near-frame0.png \
   --video .runtime/flow_dp3/cloud-near-episode0.mp4
 
 # 显式选择后端；--frame 为视频起始帧，--fps 只影响播放速度。
-.venv-ppu/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
   --export-backend matplotlib --fps 20 \
   --video .runtime/flow_dp3/cloud-from30.mp4
 
 # 分别导出 FPS 后点云与距离矢量单图。
-.venv-ppu/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
   --export-view fps --png .runtime/flow_dp3/cloud-fps-frame30.png
-.venv-ppu/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py --episode 0 --frame 30 \
   --export-view distance --png .runtime/flow_dp3/cloud-distance-frame30.png
 
 # 安装 Open3D 后仍可使用原有 EGL 离屏渲染。
@@ -203,7 +201,7 @@ PNG/MP4 的后端选择不影响原有 Open3D GUI/选点功能或 PLY 导出。
 | 参数 | 可填内容 / 范围 | 默认值（不写参数时） | 作用与填写示例 |
 | --- | --- | --- | --- |
 | `-h` / `--help` | 开关，不填值 | 不显示帮助 | 显示用法并退出：`--help` |
-| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` | 指定训练集：`--dataset testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5` |
+| `--dataset` | 已存在的训练 `.h5` 文件路径 | 项目内 `.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5` | 指定训练集：`--dataset .runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5` |
 | `--episodes` | 一个或多个非负整数索引或完整轨迹名称，用空格分隔，不能重复 | 有至少100条时选 `0 2 54 80 99`，否则取前5条或全部不足5条的轨迹 | 如 `--episodes 0 2 54` 或 `--episodes episode_00000 episode_00002`；当前整数索引范围 `0`～`99` |
 | `--all` | 开关，不填值 | 关闭 | 导出训练 HDF5 中全部轨迹：`--all`。与 `--episodes` 互斥 |
 | `--output` | 输出目录路径，不是 `.mp4` 文件路径 | 输入数据所在目录下的 `<数据集文件名去掉.h5>-visualization/` | 如 `--output .runtime/flow_dp3/my-scene-videos`，每条轨迹的 MP4 和报告写入此目录；建议选择新目录 |
@@ -221,27 +219,22 @@ PNG/MP4 的后端选择不影响原有 Open3D GUI/选点功能或 PLY 导出。
 
 ### 场景视频使用示例
 
-沿用项目 README 的 CPU/Mesa 初始化。没有初始化终端时，可执行：
+先按项目 README 第4节初始化 CPU/Mesa 环境，再执行以下命令。本机默认验收数据共3条，正式数据需用 --dataset 指定。
 
 ```bash
-export PYTHONPATH=/mnt/workspace/ManiSkill
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export MPLCONFIGDIR=/mnt/workspace/ManiSkill/.runtime/matplotlib
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
-
-# 默认选5条代表轨迹：0、2、54、80、99（数据不足100条时取前5条）。
-.venv-ppu/bin/python -B visual/export_videos.py
+# 默认从当前数据集中选择代表轨迹。
+.runtime/env-rocm/bin/python -B visual/export_videos.py
 
 # 指定轨迹与新的输出目录。
-.venv-ppu/bin/python -B visual/export_videos.py --episodes 0 2 54 80 99 \
+.runtime/env-rocm/bin/python -B visual/export_videos.py --episodes 0 1 2 \
   --output .runtime/flow_dp3/visual-five
 
-# 导出训练集全部100条；不会导出训练集以外的原始轨迹。
-.venv-ppu/bin/python -B visual/export_videos.py --all \
+# 导出指定训练集的全部轨迹；不会导出训练集以外的原始轨迹。
+.runtime/env-rocm/bin/python -B visual/export_videos.py --all \
   --output .runtime/flow_dp3/visual-all
 
 # 仅生成全数据集结构与数值检查报告，不启动仿真。
-.venv-ppu/bin/python -B visual/export_videos.py --inspect-only \
+.runtime/env-rocm/bin/python -B visual/export_videos.py --inspect-only \
   --output .runtime/flow_dp3/visual-inspection
 ```
 
@@ -269,12 +262,14 @@ RGB 是补录回放画面，点云与曲线直接来自训练 HDF5。不是策�
 
 ## 4. 验证
 
+本机已完成验收数据检查、Matplotlib 点云 PNG 导出和专家/策略视频解码。下方 camera-v5、scene-v3 为历史实验记录，相关数据需单独从备份导入，不代表本机默认3条验收数据的统计。
+
 ```bash
-.venv-ppu/bin/python -B -m unittest discover -s visual -p 'test_*.py' -v
+.runtime/env-rocm/bin/python -B -m unittest discover -s visual -p 'test_*.py' -v
 ```
 
 测试覆盖长度尺度与坐标还原、相对视图中的基座位置、前景选点/空白点击/相机后方点，
-以及文件拒绝覆盖和不合法轨迹拒绝加载。新增服务器导出测试实际生成并解码 PNG/MP4，
+以及文件拒绝覆盖和不合法轨迹拒绝加载。新增无窗口导出测试实际生成并解码 PNG/MP4，
 验证无 Open3D/桌面时可导出、包含终止观测帧、近处过滤无点时仍可渲染、相机和色标保持固定。
 双图测试还验证相同点坐标、同步近处过滤、相同投影，以及只在右图显示距离颜色和矢量。
 GUI 点击和 Open3D 离屏渲染需在完成安装后分别验证。
@@ -295,7 +290,7 @@ camera-v5的计数。五任务的相机筛选、实体计数和采样丢失分�
 episode 0 位于根目录，其余4条位于 `samples/`，两处各有 `quality.json`，根目录另有 `inspection.json`。
 这些本地生成文件不随 Git 上传。
 
-服务器点云导出已在现有 `.venv-ppu` 中实际验证：
+历史点云导出验证记录如下：
 `pointcloud/cloud-full-frame30.png`、`pointcloud/cloud-near-frame0.png`、
 `pointcloud/cloud-near-episode0.mp4` 均位于上述样例目录。
 PNG 和 MP4 均为960×768，MP4 共75帧、20 FPS；全部帧已解码检查，
@@ -307,6 +302,4 @@ PNG 和 MP4 均为960×768，MP4 共75帧、20 FPS；全部帧已解码检查，
 分别展示完整点云与近处点云的左右对照。双图均为1920×768，视频各75帧、20 FPS，
 解码检查记录在 `pointcloud/comparison-validation.json`。
 
-本次工具环境无法解析阿里云源和 PyPI 的域名，Open3D 下载未完成；同时没有桌面显示，
-因此交互窗口与 Open3D 离屏渲染尚未进行实际运行验证。请在能联网的实例终端执行安装脚本，
-在已配置桌面显示的环境验证选点。原训练环境没有被可视化安装脚本升级。
+Open3D 交互窗口与 Open3D 离屏渲染尚未在本机验收。完成可选安装后，在本机桌面会话验证选点；主环境保持独立，可视化新增依赖安装到 visual-venv。

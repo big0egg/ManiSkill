@@ -117,15 +117,15 @@
 `runs/sa-radius01` 是较早的小半径完整扫描，`runs/sa-radius-smoke01` 是初始 smoke；本文结论采用补充放大半径后的 `sa-radius02`。
 
 ```bash
-cd /mnt/workspace/ManiSkill
+cd /home/bigegg/ManiSkill
 
 # 新输出目录必须位于 testpointcloud 下；已有结果不会被覆盖。
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-MPLCONFIGDIR=/mnt/workspace/ManiSkill/testpointcloud/.cache/matplotlib \
-.venv-ppu/bin/python -B testpointcloud/sa_radius_experiment.py \
+MPLCONFIGDIR=/home/bigegg/ManiSkill/testpointcloud/.cache/matplotlib \
+.runtime/env-rocm/bin/python -B testpointcloud/sa_radius_experiment.py \
   --output testpointcloud/runs/my-sa-radius
 
-.venv-ppu/bin/python -B testpointcloud/verify_sa_radius.py \
+.runtime/env-rocm/bin/python -B testpointcloud/verify_sa_radius.py \
   testpointcloud/runs/my-sa-radius
 ```
 

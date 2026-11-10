@@ -29,9 +29,8 @@ dist/
 # project-relevant
 imgui.ini
 
-# local PPU environment and generated runtime artifacts
-# Keep these files on the server; rebuild the environment from requirements.
-/.venv-ppu/
+# local Python environments and generated runtime artifacts
+# Rebuild environments from the documented requirements.
 /.venv/
 /venv/
 /.runtime/

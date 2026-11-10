@@ -32,8 +32,8 @@ PullCube 沿用原生条件：方块与目标中心的XY距离小于0.1m；原�
 
 ## 使用命令
 
-先按项目现有环境说明激活 `.venv-ppu`、设置源码路径与软件Vulkan；PPU训练还需要初始化已有SDK。
-以下从项目根目录运行。软件Vulkan路径以机器实际存在的文件为准，本机为 `/usr/share/vulkan/icd.d/lvp_icd.json`。
+先按根目录 README 第4节激活 `.runtime/env-rocm`，设置源码、缓存与软件 Vulkan。
+以下从项目根目录运行，ICD 使用 `.runtime/mesa-env/share/vulkan/icd.d/lvp_icd.x86_64.json`。
 下面以PullCube为例；测试另外两项时，同时替换任务名和对应配置文件。
 
 ```bash
@@ -50,9 +50,8 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 python -B examples/baselines/flow_dp3/train.py \
   --config "$FLOW_CONFIG" --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
   --control-mode "$FLOW_CONTROL" --output "$FLOW_RUN_ROOT/full" \
-  --device cuda:0 --batch-size 32 --steps 30000 \
-  --wandb-mode online --wandb-project manskill \
-  --wandb-name "${FLOW_RUN_ROOT##*/}-full" --wandb-log-every 10
+  --device cuda:0 --batch-size 2 --steps 30000 \
+  --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/evaluate.py \
   --env-id "$FLOW_TASK" --checkpoint "$FLOW_RUN_ROOT/full/last.pt" \

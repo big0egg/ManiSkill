@@ -87,7 +87,7 @@ Peg插孔盒覆盖改善时，插杆FPS中位数有所下降，详见实验报�
 从项目根目录读取新的默认数据：
 
 ```bash
-.venv-ppu/bin/python -B visual/pointcloud.py \
+.runtime/env-rocm/bin/python -B visual/pointcloud.py \
   --episode 0 --frame 0 --export-backend matplotlib --export-view both \
   --png .runtime/flow_dp3/my-camera-v5-cloud.png
 ```

@@ -1,42 +1,48 @@
 # Flow DP3：任务选择、数据录制、训练与推理
 
-本文集中说明已安装环境的阿里云 PPU 实例如何运行 PickCube、PushCube、StackCube、PegInsertionSide、DrawTriangle、LiftPegUpright、PlaceSphere、PullCube。
-每个任务独立录制数据、训练和评估，共用 Flow DP3 算法。使用 CPU 仿真、CPU 软件 Vulkan 渲染；策略计算可使用初始化后的 PPU 或 CPU。
-首次安装和排错见 [README.md](README.md)，验证结果与后续任务分批接入计划见 [version.md](version.md)。
+本文集中说明已安装环境的本地 AMD RX 7700 XT 12GB 机器如何运行十个 Flow DP3 任务。
+每个任务独立录制数据、训练和评估，共用 Flow DP3 算法。使用 CPU 物理仿真、独立 Mesa 25.1.5 软件 Vulkan 渲染；策略计算使用 ROCm 显卡或 CPU。
+环境创建、依赖安装和排错见 [README.md](README.md)，历史任务验证和后续计划见 [version.md](version.md)。
 
 运行顺序：初始化终端 → 选择任务与实验路径 → 录制或转换数据 → 检查观测录像 → 训练 → 闭环推理与录像。
-继续已有训练使用第3.2节；完整模型训练前可先用第3.5节做小模型流程检查。
+本机先以 PickCube、512点、FP32、batch size 2 建立基线；其他任务沿用相同入口，仍须分别检查数据质量、显存和成功率。
+第3.6节提供完整模型的短流程验收；正式训练建议先准备100条成功示范，再运行30000次更新。本文主流程默认本地日志，W&B 为第6节的可选项。
 各节参数表列出可填内容、默认值及约束；十个任务使用同一套命令，只需先设置任务变量。
 
 ## 1. 初始化终端与路径
 
 ### 1.1 初始化环境
 
-每次打开新终端先执行：
+首次安装按 README 第3节完成；每次打开新终端只执行以下初始化。路径不同的机器须替换仓库和 Conda 位置。
 
 ```bash
-export MANISKILL_ROOT=/mnt/workspace/ManiSkill
+export MANISKILL_ROOT=/home/bigegg/ManiSkill
 cd "$MANISKILL_ROOT"
-source /usr/local/PPU_SDK/envsetup.sh
-source .venv-ppu/bin/activate
+source /home/bigegg/anaconda3/etc/profile.d/conda.sh
+conda activate "$MANISKILL_ROOT/.runtime/env-rocm"
 
+unset LD_LIBRARY_PATH
 export PYTHONPATH="$MANISKILL_ROOT"
 export PYTHONDONTWRITEBYTECODE=1
-export CUDA_VISIBLE_DEVICES=0
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
-export PIP_CONSTRAINT="$MANISKILL_ROOT/.runtime/constraints-ppu.txt"
+export PIP_CONSTRAINT="$MANISKILL_ROOT/.runtime/constraints-rocm.txt"
 export MS_ASSET_DIR="$MANISKILL_ROOT/.runtime/maniskill"
 export MPLCONFIGDIR="$MANISKILL_ROOT/.runtime/matplotlib"
-export MANISKILL_VULKAN_ICD=/usr/share/vulkan/icd.d/lvp_icd.json
+export XDG_CACHE_HOME="$MANISKILL_ROOT/.runtime/cache"
+export MIOPEN_USER_DB_PATH="$MANISKILL_ROOT/.runtime/miopen"
+export MIOPEN_CUSTOM_CACHE_DIR="$MANISKILL_ROOT/.runtime/miopen-cache"
+export MANISKILL_VULKAN_ICD="$MANISKILL_ROOT/.runtime/mesa-env/share/vulkan/icd.d/lvp_icd.x86_64.json"
 export VK_ICD_FILENAMES="$MANISKILL_VULKAN_ICD"
 
-mkdir -p "$MPLCONFIGDIR" "$MS_ASSET_DIR"
+mkdir -p "$MS_ASSET_DIR" "$MPLCONFIGDIR" "$XDG_CACHE_HOME" \
+    "$MIOPEN_USER_DB_PATH" "$MIOPEN_CUSTOM_CACHE_DIR" .runtime/flow_dp3 .runtime/reports
+test -f "$PIP_CONSTRAINT"
 test -f "$VK_ICD_FILENAMES"
 ```
 
-ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 CPU 检查流程时可跳过 PPU SDK 初始化，但仍须激活虚拟环境、设置源码路径与软件 Vulkan，并在训练/评估中填写 `--device cpu`。
+AMD 显卡的策略设备继续填写 `cuda:0`，底层为 ROCm / HIP。这里激活训练环境，通过 ICD 路径调用 mesa-env 的软件渲染。仅检查 CPU 模型流程时将训练/评估设备改为 `--device cpu`，相机渲染仍需保留上述 Mesa 设置。完整设备检查和排错见 README 第5、7节。
 
 ### 1.2 选择任务、配置和实验路径
 
@@ -56,11 +62,11 @@ ICD 文件不存在时，按 README 第4节查找并设置实际路径。仅用 
 | `PickSingleYCB-v1`（固定糖盒） | panda | pd_ee_delta_pose | 28 | 7 | 300 | picksingleycb.yaml |
 
 上表步数是Flow DP3的默认上限；三个第二批任务在ManiSkill中的原生注册上限为50步，采集和评估由本项目按上表覆盖。
-以下以 PullCube 为例，运行其他任务只改 `FLOW_TASK`，再执行整个代码块。`FLOW_EXPERIMENT` 是自定实验编号；开始新实验时换编号。
+以下以已在本机验收的 PickCube 为例，运行其他任务只改 `FLOW_TASK`，再执行整个代码块。`FLOW_EXPERIMENT` 是自定实验编号；开始新实验时换编号。
 
 ```bash
-export FLOW_TASK=PullCube-v1
-export FLOW_EXPERIMENT=first-v1
+export FLOW_TASK=PickCube-v1
+export FLOW_EXPERIMENT=local-b2-v1
 export FLOW_CONTROL=ee
 case "$FLOW_TASK" in
     PickCube-v1) FLOW_CONFIG_NAME=pickcube.yaml ;;
@@ -83,8 +89,8 @@ mkdir -p "$FLOW_RUN_ROOT"
 
 后续命令沿用这些变量。`FLOW_DATA` 指向真实训练数据，`FLOW_RUN_ROOT` 保存训练、日志和评估输出，数据可以放在实验目录外。
 PickCube 的控制方式在这里设置：`FLOW_CONTROL=ee` 使用7维末端位姿增量，`FLOW_CONTROL=joint` 使用8维绝对关节目标。其他九个任务保持 `ee`，对应上表各自的末端控制器；LiftPeg和PlaceSphere是7维位姿控制，PullCube是4维位置控制，都不支持joint分支。第3、4节命令统一通过 `--control-mode "$FLOW_CONTROL"` 传入；同一份双分支PickCube数据和 `pickcube.yaml` 可分别训练两种控制方式。两次训练使用不同的 `FLOW_EXPERIMENT` 和输出目录，`FLOW_DATA` 可以指向同一个文件。Joint 控制下的点云矢量距离仍按实际 TCP 计算，state仍为28维。
-已有单分支 PickCube 保持示范可复用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照数据为同目录的 `pickcube-joint-hold-v6.h5`，设置 `FLOW_CONTROL=joint`；显式选择控制方式后也可使用 `pickcube.yaml`。旧实验恢复需使用原目录保存的配置。
-更换目录或文件名不会改变任务；已有 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
+如有单独备份，历史单分支 PickCube 保持示范可复用 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`。先选 `FLOW_TASK=PickCube-v1`、`FLOW_EXPERIMENT=hold-v5` 并执行上面的选择块，再设置 `FLOW_DATA="$MANISKILL_ROOT/testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5"`。绝对关节动作对照数据为同目录的 `pickcube-joint-hold-v6.h5`，设置 `FLOW_CONTROL=joint`；显式选择控制方式后也可使用 `pickcube.yaml`。旧实验恢复需使用原目录保存的配置。
+这些历史文件不随 Git 上传，也不默认存在于本机。更换目录或文件名不会改变任务；历史 `drawtriangle-100-camera-v1.h5` 实际是 PickCube 数据，不能用来训练 DrawTriangle。
 本文命令显式传 `--env-id "$FLOW_TASK"`，任务不匹配时会报错。
 
 Panda/PandaWristCam 的状态为9维 qpos + 9维 qvel + 7维基座系 TCP 位姿，共25维；PandaStick 为7+7+7，共21维，没有夹爪。
@@ -96,13 +102,14 @@ LiftPeg、PlaceSphere和PullCubeTool只使用25维本体状态；PlaceSphere的�
 
 | 变量 | 可填内容 / 示例 | 作用 |
 | --- | --- | --- |
-| `MANISKILL_ROOT` / `PYTHONPATH` | 当前仓库的绝对路径，如 `/mnt/workspace/ManiSkill` | 工作目录和源码导入路径 |
-| `CUDA_VISIBLE_DEVICES` | 本实例使用 `0` | 暴露设备0；当前模型入口使用 `cuda:0` |
-| `MANISKILL_VULKAN_ICD` / `VK_ICD_FILENAMES` | 真实存在的 `.json` 路径，如 `/usr/share/vulkan/icd.d/lvp_icd.json` | 选择 Mesa 软件 Vulkan |
-| `PIP_CONSTRAINT` | 已生成的 `constraints-ppu.txt` 文件路径 | 保护框架依赖版本 |
-| `MS_ASSET_DIR` / `MPLCONFIGDIR` | 可写目录路径 | 资产与 Matplotlib 缓存位置 |
+| `MANISKILL_ROOT` / `PYTHONPATH` | 当前仓库绝对路径，本机为 `/home/bigegg/ManiSkill` | 工作目录和源码导入路径 |
+| `CUDA_VISIBLE_DEVICES` / `HIP_VISIBLE_DEVICES` / `ROCR_VISIBLE_DEVICES` | 单卡默认不设置；如已有值须检查可见性 | 错误的屏蔽值会导致显卡不可见，当前策略入口使用 `cuda:0` |
+| `MANISKILL_VULKAN_ICD` / `VK_ICD_FILENAMES` | `.runtime/mesa-env/share/vulkan/icd.d/lvp_icd.x86_64.json` 的完整路径 | 选择本机已验证的 Mesa 25.1.5 软件 Vulkan |
+| `PIP_CONSTRAINT` | 已生成的 `.runtime/constraints-rocm.txt` 完整路径 | 后续安装包时保护已验证的核心版本 |
+| `MS_ASSET_DIR` / `MPLCONFIGDIR` / `XDG_CACHE_HOME` | 项目内可写目录 | 资产、Matplotlib 和通用缓存位置 |
+| `MIOPEN_USER_DB_PATH` / `MIOPEN_CUSTOM_CACHE_DIR` | `.runtime/miopen` / `.runtime/miopen-cache` 的完整路径 | ROCm 算子数据库和缓存位置 |
 | `OMP_NUM_THREADS` / `MKL_NUM_THREADS` / `OPENBLAS_NUM_THREADS` | 正整数，本环境沿用 `1` | CPU 数值库线程数 |
-| `FLOW_TASK` | 上表十个完整任务名之一，如 `PullCube-v1` | 选择任务，显式校验数据和 checkpoint |
+| `FLOW_TASK` | 上表十个完整任务名之一，先使用 `PickCube-v1` | 选择任务，显式校验数据和 checkpoint |
 | `FLOW_EXPERIMENT` | 自定名称，如 `first-v1`、`camera-v2` | 区分新实验，避免覆盖输出 |
 | `FLOW_CONTROL` | `ee`；PickCube也可填 `joint` | 训练选择数据控制分支，推理核对模型控制方式；恢复时保持原值 |
 | `FLOW_CONFIG` | 上表对应 YAML 的完整路径 | 正式模型结构与训练配置；由 case 自动设置 |
@@ -134,7 +141,8 @@ if [ ! -f "$FLOW_DATA" ]; then
         --env-id "$FLOW_TASK" \
         --generate 120 --count 100 --start-seed 0 \
         --max-attempts 2000 \
-        --num-points 512 --length-scale 1.0 --output "$FLOW_DATA"
+        --control-mode "$FLOW_CONTROL" --num-points 512 --length-scale 1.0 \
+        --video-every 10 --output "$FLOW_DATA"
 fi
 
 ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
@@ -142,7 +150,7 @@ ls -lh "$FLOW_DATA" "${FLOW_DATA%.h5}.json"
 
 未填写 `--max-steps` 时按第1.2节任务表选择上限，不把其他任务也固定为200步。
 录制专家使用 `pd_joint_pos`，目标控制器按任务表选择。转换仅恢复初始场景，之后真实执行动作并重新判断最终成功。
-PickCube 默认同时保存 `ee`（v5，7维末端位姿增量）与 `joint`（v6，8维关节绝对目标）两个分支，共用一次生成的原始专家轨迹。两者分别从相同初始状态真实回放、重新采集观测，到点后保持固定目标40步；只有两个分支均成功且保持稳定的源 episode 才收录。它们的动作步数可能不同，不能共用一条观测序列。`--hold-steps` 调整保持长度；`--control-mode ee` / `joint` 只录制一个分支，仍兼容完整控制器名称。其他九个任务使用各自的单控制器，只支持ee别名或对应的完整末端控制器名称。诊断另存 `task_metrics`，不输入模型。
+上述命令显式传入 `FLOW_CONTROL`，本地首轮只录制 ee 分支；如需一次录制两个控制分支，使用第2.5节。省略 `--control-mode` 时，PickCube 默认同时保存 `ee`（v5，7维末端位姿增量）与 `joint`（v6，8维关节绝对目标）两个分支，共用一次生成的原始专家轨迹。两者分别从相同初始状态真实回放、重新采集观测，到点后保持固定目标40步；只有两个分支均成功且保持稳定的源 episode 才收录。它们的动作步数可能不同，不能共用一条观测序列。`--hold-steps` 调整保持长度；`--control-mode ee` / `joint` 只录制一个分支，仍兼容完整控制器名称。其他九个任务使用各自的单控制器，只支持ee别名或对应的完整末端控制器名称。诊断另存 `task_metrics`，不输入模型。
 
 LiftPeg、PlaceSphere、PullCube默认在成功后真实保持20步，并检查保持期间持续成功；第一批Push/Stack/Peg/Draw默认0步，暂不支持非零保持。
 LiftPeg的示范还要求杆已释放且静止。PullCube保持时将机械臂位置增量置零并保留夹爪状态，避免继续重复推动动作。
@@ -168,8 +176,8 @@ LiftPeg的示范还要求杆已释放且静止。PullCube保持时将机械臂�
 export FLOW_SOURCE=/实际路径/trajectory.h5
 python -B examples/baselines/flow_dp3/prepare_demos.py \
     --env-id "$FLOW_TASK" --source "$FLOW_SOURCE" \
-    --count 100 --num-points 512 --length-scale 1.0 \
-    --output "$FLOW_DATA"
+    --count 100 --control-mode "$FLOW_CONTROL" \
+    --num-points 512 --length-scale 1.0 --output "$FLOW_DATA"
 ```
 
 例如复用 PickCube 的现有原始轨迹时，选择 `FLOW_TASK=PickCube-v1`，再设置 `FLOW_SOURCE="$MANISKILL_ROOT/.runtime/flow_dp3/PickCube-v1-first-v1.raw.h5"`，输出使用尚未存在的新文件名。
@@ -232,19 +240,20 @@ v5/v6/v7/v8还记录真实动作范围和末尾采样规则：所有真实状态
 
 ### 2.4 检查数据、点云和观测录像
 
-所有任务使用同一套可视化入口，由 HDF5 契约决定任务和维度。服务器无桌面时先导出双图 PNG 和一条同步 MP4：
+所有任务使用同一套可视化入口，由 HDF5 契约决定任务和维度。以下命令使用已激活的 env-rocm，无需 Open3D；先检查文件，再导出双图 PNG 和一条同步 MP4：
 
 ```bash
 python -B visual/export_videos.py \
-    --dataset "$FLOW_DATA" --inspect-only \
+    --dataset "$FLOW_DATA" --control-mode "$FLOW_CONTROL" --inspect-only \
     --output "$FLOW_RUN_ROOT/data-inspection"
 
 python -B visual/pointcloud.py \
-    --dataset "$FLOW_DATA" --episode 0 --frame 0 --export-view both \
+    --dataset "$FLOW_DATA" --control-mode "$FLOW_CONTROL" \
+    --episode 0 --frame 0 --export-view both \
     --export-backend matplotlib --png "$FLOW_RUN_ROOT/cloud-frame0.png"
 
 python -B visual/export_videos.py \
-    --dataset "$FLOW_DATA" --episodes 0 \
+    --dataset "$FLOW_DATA" --control-mode "$FLOW_CONTROL" --episodes 0 \
     --output "$FLOW_RUN_ROOT/observations"
 ```
 
@@ -252,7 +261,15 @@ python -B visual/export_videos.py \
 源 `.raw.h5` 与同名 JSON 须仍可从记录位置访问；迁移后可在 `export_videos.py` 命令中加入 `--raw-source /实际路径/trajectory.raw.h5`，仍会核对来源指纹。
 `--episodes 0` 是数据轨迹索引，可改为 `--episodes 0 1 2`；它不同于评估命令中表示局数的 `--episodes 20`。
 双图显示原 FPS 点云及矢量距离；PickCube和PullCube有GOAL字段并显示指定目标，其余任务不显示GOAL，同步视频展示 TCP XYZ。
-输出拒绝覆盖，重复导出换新路径。交互选点仍需要桌面和 Open3D，完整 PNG/MP4/交互参数见 [visual/README.md](visual/README.md)。
+输出拒绝覆盖，重复导出换新路径。交互选点需要桌面和 Open3D，先按 README 第3.5节安装可选环境，再运行：
+
+```bash
+"$MANISKILL_ROOT/.runtime/visual-venv/bin/python" -B visual/pointcloud.py \
+    --dataset "$FLOW_DATA" --control-mode "$FLOW_CONTROL" \
+    --episode 0 --frame 0 --pick-points
+```
+
+本机尚未验收 Open3D 桌面窗口。更多 PNG/MP4/交互参数见 [visual/README.md](visual/README.md)。
 双分支数据的两个可视化入口均支持 `--control-mode ee` / `joint`，默认ee。
 
 ### 2.5 PickCube一次录制、分别选择控制方式
@@ -262,17 +279,20 @@ python -B visual/export_videos.py \
 ```bash
 python -B examples/baselines/flow_dp3/prepare_demos.py \
     --env-id PickCube-v1 --generate 120 --count 100 --max-attempts 2000 \
+    --control-mode both --num-points 512 --video-every 10 \
     --output .runtime/flow_dp3/pickcube-dual.h5
 
 python -B examples/baselines/flow_dp3/train.py \
     --data .runtime/flow_dp3/pickcube-dual.h5 --control-mode ee \
     --config examples/baselines/flow_dp3/configs/pickcube.yaml \
-    --output .runtime/flow_dp3/pickcube-dual-ee --wandb-mode disabled
+    --output .runtime/flow_dp3/pickcube-dual-ee \
+    --device cuda:0 --batch-size 2 --steps 30000 --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/train.py \
     --data .runtime/flow_dp3/pickcube-dual.h5 --control-mode joint \
     --config examples/baselines/flow_dp3/configs/pickcube.yaml \
-    --output .runtime/flow_dp3/pickcube-dual-joint --wandb-mode disabled
+    --output .runtime/flow_dp3/pickcube-dual-joint \
+    --device cuda:0 --batch-size 2 --steps 30000 --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/evaluate.py \
     --checkpoint .runtime/flow_dp3/pickcube-dual-joint/best.pt --control-mode joint \
@@ -297,7 +317,7 @@ LiftPeg原来按错误的欧拉角分量判断直立，现已按实际长轴修�
 因此LiftPeg结果采用本地修正判定，不能直接当作旧错误判定下的官方基准结果。
 PlaceSphere专家按球半径和容器底厚计算放置高度，并检查运动规划失败；三个任务的数据契约均为v7。
 
-已有小规模检查数据位于 `.runtime/flow_dp3/rigid-batch2-20261010/`，每项3条成功转换示范：
+历史小规模检查数据位于 `.runtime/flow_dp3/rigid-batch2-20261010/`，每项3条成功转换示范：
 
 | 任务 | 可复用的检查数据（相对上述目录） |
 | --- | --- |
@@ -305,7 +325,7 @@ PlaceSphere专家按球半径和容器底厚计算放置高度，并检查运动
 | PlaceSphere-v1 | `PlaceSphere-v1/demos.h5` |
 | PullCube-v1 | `PullCube-v1/demos-right65.h5`，使用最终右侧相机；`demos.h5`是初始相机比较数据 |
 
-复用时在选择任务后将 `FLOW_DATA` 指向对应文件，可直接执行第2.4节和第3.5节的小模型检查；这些文件不是正式100条数据集。
+这些历史文件需单独从备份导入；本次本机环境建立未重新生成它们。复用时在选择任务后将 `FLOW_DATA` 指向对应文件，可直接执行第2.4节和第3.5节的小模型检查；这些文件不是正式100条数据集。
 验证中PullCube首条88帧仍有2帧方块未被FPS选中；PlaceSphere抽查帧中球只有4–6点，需在正式训练中评估精确放置效果。
 完整命令与检查结果见 [第二批使用说明](examples/baselines/flow_dp3/RIGID_TASKS.md) 和 [版本记录](version.md)。
 
@@ -319,7 +339,7 @@ PlaceSphere专家按球半径和容器底厚计算放置高度，并检查运动
 python -B -m mani_skill.utils.download_asset ycb
 ```
 
-默认资产位于 `~/.maniskill/data/assets/mani_skill2_ycb/`；使用 `MS_ASSET_DIR` 时按该变量定位。缺少模型会在采集/评估前给出明确错误。PickSingleYCB专家根据物体OBB计算夹持方向，并按实际TCP—物体相对变换搬运物体原点至目标，不直接把TCP当作物体位置。
+按第1.1节初始化后，资产位于 `$MS_ASSET_DIR/data/assets/mani_skill2_ycb/`；未设置该变量时默认位于 `~/.maniskill/data/assets/mani_skill2_ycb/`。缺少模型会在采集/评估前给出明确错误。PickSingleYCB专家根据物体OBB计算夹持方向，并按实际TCP—物体相对变换搬运物体原点至目标，不直接把TCP当作物体位置。
 
 | 任务 | 原生成功判定 | 示范额外验收 | 策略观测 |
 | --- | --- | --- | --- |
@@ -330,7 +350,7 @@ python -B -m mani_skill.utils.download_asset ycb
 
 **点云数量由用户录制时指定**：`--num-points 512`、`1024`、`2048`等，默认仍为512，不按新任务强制修改；训练与推理读取数据/checkpoint保存的数量。仍使用最多4096点随机预选再FPS。更换点数需生成新数据、使用新的训练目录。
 
-当前工具环境缺少官方YCB资产且不能联网下载，糖盒专家和相机先通过长方体替代物检查；官方糖盒资产上的实际验收尚未完成，不能把替代物检查当作糖盒成功率。
+历史糖盒专家和相机曾使用长方体替代物检查，官方糖盒资产上的实际验收尚未完成；本次本机只验收 PickCube，不将替代物检查当作糖盒成功率。使用糖盒前须下载官方资产并重新检查完整链路。
 
 新增配置为 `pullcubetool.yaml`、`picksingleycb.yaml`，均要求v8契约并采用原有模型与训练起点。小规模验证的实际范围和环境限制见 [version.md](version.md)。
 
@@ -338,40 +358,37 @@ python -B -m mani_skill.utils.download_asset ycb
 
 ### 3.1 开始新的训练
 
-先完成第1节任务选择和第2节数据准备。以下命令使用任务对应的正式配置，显式设置batch size 256、30000次更新；CLI覆盖YAML中的batch size 32，训练和评估统一记录到 `manskill` 项目。
-使用 online 日志前按 README 安装 W&B 并登录；不需要 W&B 时跳过登录，将命令中的 `online` 改为 `disabled`。
-运行前确认第1.2节的 `FLOW_CONTROL`：PickCube填 `ee` 或 `joint`，其他任务填 `ee`。无需为了切换PickCube控制方式修改 YAML；显式参数会按所选v5/v6数据设置7/8维动作接口。
+先完成第1节任务选择和第2节数据准备。以下命令使用任务正式配置、原完整主干和 FP32，显式设置本机12GB显存起点 batch size 2、30000次更新，默认只保存本地日志。
+CLI 的 batch size 2 覆盖 YAML 中保留的 batch_size=32，不能省略该参数后把 YAML 默认值当作本机已验证值。
+运行前确认 `FLOW_CONTROL`：PickCube填 `ee` 或 `joint`，其他任务填 `ee`。显式参数按所选v5/v6数据设置7/8维动作接口。
 
 ```bash
-wandb login
-
 python -B examples/baselines/flow_dp3/train.py \
     --config "$FLOW_CONFIG" \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
     --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
-    --batch-size 256 --steps 30000 \
-    --wandb-mode online --wandb-project manskill \
-    --wandb-name "${FLOW_RUN_ROOT##*/}-ee-full" --wandb-log-every 10
+    --batch-size 2 --steps 30000 \
+    --wandb-mode disabled
 ```
 
-`--output` 必须为空目录或尚未存在。正式配置的完整主干为 `[512,1024,2048]`，约2.55亿参数。
-batch size 根据可用显存选择，第一次确定后恢复训练沿用同一值。
-十份正式配置是各任务的候选起点，尚未宣称经过性能调优。
+`--output`必须为空目录或尚未存在。正式配置完整主干为`[512,1024,2048]`，约2.55亿参数。
+本机 PickCube、512点、batch size 2 的短训练显存峰值约5.86GiB，预留峰值约5.89GiB；其他任务、更高点数或不同批大小仍须实测。
+更改 batch size 会改变每次更新的样本数，不能把不同 batch size 的30000次更新直接视为相同训练量。新实验可以调整，恢复原实验必须保持原值。
+十个任务的正式配置是候选起点，尚未宣称完成性能调优或正式成功率验证。
 state/action 归一化只统计训练 episode；点云保持契约指定的物理尺度，编码器、拼接方式、Flow DP3 损失与采样公式保持一致。
 
-单个完整 checkpoint 约4 GB，`last.pt`、`best.pt` 和临时写入均占空间。
-保存前会估算空间，失败时保留上一次成功文件；正式训练多个任务前需准备足够存储。
-`best.pt` 仍是完整 checkpoint，尚未改成轻量推理权重。
+单个完整 checkpoint 约3.9GiB，`last.pt`、`best.pt`和临时写入均占空间。
+正式配置的 `checkpoint_every`已从100调整为1000，验证间隔仍为100；验证 loss 改善和末步也会保存，因此可能在定期保存之前写盘。
+保存前会估算空间，失败时保留上一次成功文件。`best.pt`仍包含完整恢复信息，不是轻量推理权重。
 
-不接入 W&B 时将 `--wandb-mode online` 改成 `disabled`，可以跳过登录；网络受限时改成 `offline`，保留本地 SDK 日志。
+需要 W&B 时按 README 安装可选依赖，再按第6节为新实验启用 online / offline；本地主流程无需登录。
 
 ### 3.2 继续已有训练
 
 十个任务都用下面的恢复命令。先把 `FLOW_TASK`、`FLOW_DATA`、`FLOW_RUN_ROOT` 设置为原实验的真实任务、数据和目录；
 恢复时不用第1.2节的新实验编号创建另一个目录。
-示例假定原训练使用 batch size 32、PPU 和总预算30000步；原实验不同则按原记录填写。
-如果沿用第3.1节的batch size 256，恢复命令也须填写 `--batch-size 256`；实际值见原训练的run.json。
+示例假定原训练使用本机 ROCm、batch size 2、总预算30000步，因中断尚未完成。历史实验的 batch size 和计算环境以原 run.json 为准，不能统一改成2。
 使用训练目录内保存的解析后配置，避免后续修改候选配置影响旧实验。
 同时将 `FLOW_CONTROL` 设为原训练的控制方式：Joint模型填 `joint`，末端模型填 `ee`。双分支数据省略此参数会默认选择ee，因此恢复Joint训练必须继续显式选择joint。
 
@@ -381,24 +398,28 @@ python -B examples/baselines/flow_dp3/train.py \
     --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
     --control-mode "$FLOW_CONTROL" \
     --output "$FLOW_RUN_ROOT/full" --device cuda:0 \
-    --batch-size 32 --steps 50000 \
+    --batch-size 2 --steps 30000 \
     --resume "$FLOW_RUN_ROOT/full/last.pt" \
-    --wandb-mode online --wandb-log-every 10
+    --wandb-mode disabled
 ```
 
 新训练和恢复训练按实际情况选择执行。`--steps 30000` 表示累计到30000步，从10000步恢复时再更新20000步。目标必须大于 checkpoint 已保存步数，已完成30000步的运行无需执行此命令。
 
 学习率调度总长度由 YAML `training.steps=30000` 决定，CLI 提前停止不改变调度。达到总长度后学习率为0；需要不同总预算时，在新训练开始前确定配置。
 
-恢复会加载模型、EMA、normalizer、优化器、调度器和随机状态，并核对配置、数据 SHA256、输入契约、batch size、设备类型及原输出目录。在线 W&B 恢复自动沿用原 run 身份。
+恢复会加载模型、EMA、normalizer、优化器、调度器和随机状态，并核对配置、数据 SHA256、输入契约、batch size、CPU/显卡随机状态及原输出目录。保持原 ROCm / PyTorch 环境；更换框架版本或计算设备后不保证随机状态兼容。
+原训练使用在线或离线 W&B 时相应改回 online / offline；在线恢复自动沿用原 run 身份。定期保存间隔已变更的历史实验仍读取自己保存的 config.yaml，不用当前仓库配置覆盖。
 
-例如恢复历史 `pickcube-001`，先执行下面的变量设置，再执行上面的恢复命令；原训练设置仍以 `run.json` 为准：
+例如恢复本次已完成20步的本机验收模型，可独立执行下列命令，将累计步数推进至30；这只是继续检查流程，不是正式训练：
 
 ```bash
-export FLOW_TASK=PickCube-v1
-export FLOW_CONTROL=ee
-export FLOW_RUN_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-001"
-export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.h5"
+python -B examples/baselines/flow_dp3/train.py \
+    --config .runtime/flow_dp3/local-12gb-check/full-b2/config.yaml \
+    --env-id PickCube-v1 --control-mode ee \
+    --data .runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5 \
+    --output .runtime/flow_dp3/local-12gb-check/full-b2 \
+    --resume .runtime/flow_dp3/local-12gb-check/full-b2/last.pt \
+    --device cuda:0 --batch-size 2 --steps 30 --wandb-mode disabled
 ```
 
 ### 3.3 训练参数：可以填什么
@@ -410,9 +431,9 @@ export FLOW_DATA="$MANISKILL_ROOT/.runtime/flow_dp3/pickcube-100-v2.h5"
 | `--data` | 必填 | 已转换的训练 `.h5` 路径，如 `"$FLOW_DATA"` | 文件须真实存在，至少包含两条成功 episode |
 | `--control-mode` | 双分支默认ee；单分支沿用契约 | `ee`、`joint`或完整控制器名称 | 选择训练数据分支，自动设置PickCube v5/v6动作接口；推理同名参数仅核对checkpoint |
 | `--output` | 必填 | 可写目录，如 `"$FLOW_RUN_ROOT/full"` | 新训练目录须为空；恢复须是原 checkpoint 所在目录 |
-| `--device` | `cuda:0` | 只能填 `cpu` 或 `cuda:0` | 策略计算设备；本 PPU 实例使用 cuda:0，仿真和渲染仍用 CPU |
+| `--device` | `cuda:0` | 只能填 `cpu` 或 `cuda:0` | 策略计算设备；本机 cuda:0 使用 ROCm / HIP，仿真和渲染仍用 CPU |
 | `--steps` | YAML `training.steps` | 正整数，如 `10000`、`30000` | 目标累计更新次数；恢复须大于已有步数，通常不超过调度总长度 |
-| `--batch-size` | YAML `training.batch_size`，当前32 | 正整数，如 `8`、`16`、`32` | 每次更新的序列窗口数，须适合显存；恢复必须保持原值 |
+| `--batch-size` | YAML 为32；本文命令显式覆盖为2 | 正整数，本机先使用 `2` | 每次更新的序列窗口数；更大值先测显存，恢复必须保持原值 |
 | `--resume` | 不填，从头训练 | 已存在的本项目 `.pt` 路径 | 如 `"$FLOW_RUN_ROOT/full/last.pt"`；配置、数据与设备须匹配 |
 | `--wandb-log-every` | `10` | 正整数，如 `1`、`10`、`100` | W&B 记录间隔；首步、验证和末步仍记录 |
 
@@ -456,34 +477,72 @@ python -B examples/baselines/flow_dp3/evaluate.py \
 该配置使用 `[64,128,256]` 小主干、batch size 2，仅检查训练和推理是否可运行。
 20次更新和16步推理不能代表任务成功率；正式训练仍使用第1.2节匹配的配置及完整任务步数。
 
+### 3.6 本机完整模型的短流程验收
+
+已完成的本机验收位于 `.runtime/flow_dp3/local-12gb-check/`：3条成功 ee 示范、完整模型10步训练并恢复至20步、2局各32步闭环评估，以及3段视频的逐帧解码。
+这些短评估成功率为0/2，不用于判断任务学习效果。汇总见 [本机12GB验收报告](.runtime/reports/local-12gb-validation.json)，正式100条数据和30000步训练尚未执行。
+
+需要复现时，先执行第1.1节，再选择一个尚未使用的目录。下面不会复用已存在的验收输出：
+
+```bash
+export FLOW_CHECK_ROOT="$MANISKILL_ROOT/.runtime/flow_dp3/local-12gb-check-v2"
+
+python -B examples/baselines/flow_dp3/prepare_demos.py \
+    --env-id PickCube-v1 --generate 5 --count 3 --max-attempts 20 \
+    --control-mode ee --num-points 512 --video-every 10 \
+    --output "$FLOW_CHECK_ROOT/pickcube-smoke.h5"
+
+python -B examples/baselines/flow_dp3/train.py \
+    --config examples/baselines/flow_dp3/configs/pickcube.yaml \
+    --env-id PickCube-v1 --control-mode ee \
+    --data "$FLOW_CHECK_ROOT/pickcube-smoke.h5" \
+    --output "$FLOW_CHECK_ROOT/full-b2" \
+    --device cuda:0 --batch-size 2 --steps 10 --wandb-mode disabled
+
+python -B examples/baselines/flow_dp3/train.py \
+    --config "$FLOW_CHECK_ROOT/full-b2/config.yaml" \
+    --env-id PickCube-v1 --control-mode ee \
+    --data "$FLOW_CHECK_ROOT/pickcube-smoke.h5" \
+    --output "$FLOW_CHECK_ROOT/full-b2" \
+    --resume "$FLOW_CHECK_ROOT/full-b2/last.pt" \
+    --device cuda:0 --batch-size 2 --steps 20 --wandb-mode disabled
+
+python -B examples/baselines/flow_dp3/evaluate.py \
+    --checkpoint "$FLOW_CHECK_ROOT/full-b2/last.pt" \
+    --env-id PickCube-v1 --control-mode ee --device cuda:0 \
+    --episodes 2 --start-seed 1000 --max-steps 32 --save-video \
+    --output "$FLOW_CHECK_ROOT/eval-smoke.json" --wandb-mode disabled
+```
+
+原验收目录保存的是调整前的配置，恢复它时使用第3.2节的保存配置。本节新复现采用当前正式配置，末步和验证改善仍保存 checkpoint；学习率总长度继续按30000步调度，短流程不会把调度改为20步。
+确认链路通过后，回到第1.2节选择新的正式实验编号，再准备100条成功示范。不要把3条验收数据或20步权重当作正式结果。
+
 ## 4. 评估、推理与视频
 
 ### 4.1 运行评估并保存 MP4
 
-训练后执行，以下示例使用 `last.pt` 的EMA权重；比较验证loss最优模型时将路径改为 `best.pt`。
+训练后执行，以下示例使用 `best.pt` 的EMA权重、50局环境种子；比较最近保存模型时将路径改为 `last.pt`。
 `FLOW_CONTROL` 保持训练时的值；评估的 `--control-mode` 用于核对checkpoint。需要评估另一种控制方式时，选择该方式训练得到的checkpoint及输出目录。省略此参数会自动跟随checkpoint，不能通过参数将7维末端模型切换成8维关节模型。
 
 ```bash
 python -B examples/baselines/flow_dp3/evaluate.py \
-    --checkpoint "$FLOW_RUN_ROOT/full/last.pt" --env-id "$FLOW_TASK" --device cuda:0 \
+    --checkpoint "$FLOW_RUN_ROOT/full/best.pt" --env-id "$FLOW_TASK" --device cuda:0 \
     --control-mode "$FLOW_CONTROL" \
-    --episodes 20 --start-seed 1000 --policy-seed 42 \
+    --episodes 50 --start-seed 1000 --policy-seed 42 \
     --save-video --video-dir "$FLOW_RUN_ROOT/videos-full" --video-fps 20 \
-    --output "$FLOW_RUN_ROOT/eval-full-video.json" \
-    --wandb-mode online --wandb-project manskill \
-    --wandb-name "${FLOW_RUN_ROOT##*/}-full-eval"
+    --output "$FLOW_RUN_ROOT/eval-full-video.json" --wandb-mode disabled
 
 ls -lh "$FLOW_RUN_ROOT/videos-full"/*.mp4
 cat "$FLOW_RUN_ROOT/eval-full-video.json"
 ```
 
-这是闭环推理：输入2帧观测，预测动作块，连续执行8步后重新规划。环境物理和点云渲染使用 CPU，策略使用 PPU。
+这是闭环推理：输入2帧观测，预测动作块，连续执行8步后重新规划。环境物理和点云渲染使用 CPU，策略使用 AMD 显卡上的 ROCm PyTorch。
 
 实际任务、机器人、控制器、相机、crop、状态和动作维度均从 checkpoint 读取，启动日志和报告记录真实任务。
 `--env-id` 只核对期望任务，不能把旧 PickCube 权重切换成 DrawTriangle 等其他任务。
 未填写 `--max-steps` 时按第1.2节任务表运行；DrawTriangle 不允许超过300步。
 
-上述命令生成 `seed_1000.mp4` 至 `seed_1019.mp4`，JSON 每局记录 `video_path`。
+上述命令生成 `seed_1000.mp4` 至 `seed_1049.mp4`，JSON 每局记录 `video_path`。
 以 PickCube 的200步、20 FPS 为例，完整录像约10秒；其他任务按实际步数变化。这是视频播放时长，实际计算可能更久。
 上传视频到 W&B 时在评估命令中加入 `--wandb-upload-videos`。
 
@@ -520,10 +579,10 @@ cat "$FLOW_RUN_ROOT/eval-full-video.json"
 | `success_end_rate` | 最后仍成功的局数比例，范围0～1 |
 | `episodes[].final_task_metrics` | 每局最终任务诊断；LiftPeg含直立角度、高度误差、释放/静止标志，PlaceSphere含水平/高度误差和释放/静止标志，PullCube含XY目标误差 |
 | `<报告名>-trace.json` | 开启save-trace后生成的逐步任务指标和执行动作 |
-| `videos-full/` | 机器人闭环执行 MP4，可在 DSW 文件浏览器中下载 |
+| `videos-full/` | 机器人闭环执行 MP4，可在本机播放器中打开 |
 | W&B 评估 run | 每局 eval/* 指标与总体成功率；上传视频后也可查看画面 |
 
-`.runtime/` 是隐藏目录，在 DSW 文件浏览器中开启显示隐藏文件。运行结束与任务成功是两种结果：是否完成任务看成功率字段和视频。
+`.runtime/`是隐藏目录，本机文件管理器可按 Ctrl+H 显示，或在终端用 ls 查看。运行结束与任务成功是两种结果：是否完成任务看成功率字段和视频。
 
 ## 5. YAML 参数：可以填什么
 
@@ -568,7 +627,7 @@ PickCube之外的九个任务正式配置显式记录state/action维度；`pickc
 | --- | --- | --- | --- |
 | `required_contract_version` | Pick位姿5；Pick关节6；LiftPeg/PlaceSphere/PullCube 7；PullCubeTool/PickSingleYCB 8 | 可省略，正整数 | 新Pick及第二、三批配置要求匹配的保持/采样契约；第一批四项及旧保存配置可不含此项 |
 | `seed` | `42` | 非负整数，如 `42`、`123` | 训练随机流与 episode 划分种子 |
-| `batch_size` | `32` | 正整数，如 `8`、`16`、`32` | 每次更新的窗口数；CLI 可覆盖，恢复须保持原值 |
+| `batch_size` | YAML 保留 `32`，本文 CLI 使用 `2` | 正整数，本机从 `2` 开始实测 | 每次更新的窗口数；CLI 可覆盖，恢复须保持原值 |
 | `steps` | `30000` | 正整数，如 `10000`、`30000` | 默认总更新数和学习率调度长度 |
 | `lr` | `0.0001` | 有限正数，如 `0.0001`、`0.00005` | AdamW 基础学习率 |
 | `betas` | `[0.95,0.999]` | 两项浮点数列表，每项满足0≤值<1，如 `[0.95, 0.999]` | AdamW 一阶 / 二阶矩衰减系数 |
@@ -577,19 +636,20 @@ PickCube之外的九个任务正式配置显式记录state/action维度；`pickc
 | `val_ratio` | `0.2` | 浮点数，严格在0～1之间，如 `0.1`、`0.2` | 按整条 episode 留出的验证比例 |
 | `val_every` | `100` | 正整数，如 `100`、`500` | 验证间隔，最后一步也验证 |
 | `val_batches` | `4` | 正整数，如 `4`、`8` | 每次验证取平均的 batch 数 |
-| `checkpoint_every` | `100` | 正整数，如 `100`、`500` | 定期保存间隔，验证改善及末步也保存 |
+| `checkpoint_every` | 正式配置 `1000`；烟雾配置 `10` | 正整数，如 `1000` | 定期保存间隔；验证改善及末步仍额外保存，旧实验读取其保存值 |
 | `grad_clip` | `1.0` | 有限正数，如 `0.5`、`1.0` | 梯度范数裁剪阈值 |
 
 YAML 列表用方括号和逗号，例如 `betas: [0.95, 0.999]`。CLI 参数名使用连字符，YAML 字段名使用下划线。training 必须保留原12个优化/划分字段，可增加上述契约版本约束，不能添加脚本未支持的字段。
 
 ## 6. W&B 参数与日志操作
 
-训练和评估默认关闭 W&B，本文命令显式启用 online。使用网页曲线前，按 README 安装固定版本 `wandb 0.22.3` 并执行 `wandb login`；该版本支持新生成的86字符 API key，旧版环境升级后使用 `wandb login --relogin`。
+训练和评估默认关闭 W&B，本文主流程使用 disabled，仍保存完整本地日志、数据契约和 checkpoint。本机尚未验证 W&B 可选依赖和登录。
+需要网页曲线时，先按 README 第3.4节安装可选依赖并执行 `wandb login`。在第3.1节新训练命令中，将 `--wandb-mode disabled` 替换为 `--wandb-mode online --wandb-project manskill --wandb-name "${FLOW_RUN_ROOT##*/}-${FLOW_CONTROL}-full"`；评估同理可启用 online 并设置独立名称。需要离线 SDK 日志时将模式改成 offline，同样要求安装 SDK。
 
 | 参数 | 默认 | 可填内容 / 示例 | 意义及限制 |
 | --- | --- | --- | --- |
 | `--wandb-mode` | 训练 / 评估 `disabled`；历史导入 `online` | 只能填 `disabled`、`online`、`offline` | online 实时上传；offline 留待同步；历史导入不支持 disabled |
-| `--wandb-project` | `flow_dp3`；恢复沿用原项目 | 项目名称字符串，如 `manskill`、`flow_dp3` | 本文统一使用 manskill，恢复原 run 时项目须匹配 |
+| `--wandb-project` | `flow_dp3`；恢复沿用原项目 | 项目名称字符串，如 `manskill`、`flow_dp3` | 可选在线示例使用 manskill，恢复原 run 时项目须匹配 |
 | `--wandb-entity` | 登录账户默认 workspace，恢复沿用原值 | 账号或团队的真实 workspace 名称 | 从 W&B workspace 地址中取名称；有权限才能写入，通常可省略 |
 | `--wandb-name` | 输出目录名 | 显示名称字符串，如 `pickcube-002-full` | 本文根据实验目录自动拼接名称 |
 | `--wandb-run-id` | 自动生成，恢复沿用 | 原 run ID 字符串，如 `238148c3` | 通常省略；恢复显式填写时必须与保存的 ID 一致 |
@@ -634,11 +694,13 @@ fi
 
 ## 7. 保存与迁移
 
-数据、checkpoint、日志和视频都在 `.runtime/`，该目录被 Git 忽略。备份或换实例时单独传输数据和完整训练目录；部署代码使用当前仓库和 README 中的环境步骤。
+数据、checkpoint、日志和视频都在 `.runtime/`，该目录被 Git 忽略。备份或换机器时单独传输数据和完整训练目录；环境按 README 重建，不直接搬运带绝对路径的 Conda / venv 目录。
+保留 `.runtime/constraints-rocm.txt`、`packages-rocm.txt`、两份 Conda 显式清单以及本次安装的可选依赖清单，便于核对原环境。环境目录和运行产物都不随 Git 自动上传。
 
 同步观测录像还依赖原始 HDF5 和同名 JSON，迁移时一并保留并检查 manifest 的来源路径。
 第一批四项和第二批LiftPeg/PlaceSphere/PullCube均已完成小规模CPU采集、转换、训练恢复、闭环推理和录像检查。
-第二批每项保存3条成功示范并通过20步保持，逐帧复核state和点云误差为0；尚未完成正式100条数据训练的成功率评测或第二批PPU运行验证。
+第二批历史检查每项保存3条成功示范并通过20步保持，逐帧复核state和点云误差为0；本次本机只验收 PickCube，不能据此宣称其他任务在 ROCm 上已验证或已取得正式成功率。
+迁移数据按任务和控制契约单独检查；重建环境后先验证权重加载和推理，恢复训练仍须匹配原数据、保存配置和计算环境。
 后续分批接入任务、验收标准和已知验证限制统一记录在 [version.md](version.md)；新任务通过验收后更新本文任务表、配置映射及对应参数说明。
 
 `python -B` 用于禁止生成 `.pyc`。路径包含空格或使用环境变量时保留命令中的双引号。开关参数采用“出现即开启、省略即关闭”的格式，数值参数则在名称后填写数值。

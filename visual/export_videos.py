@@ -267,7 +267,7 @@ def run(args):
     from obs_adapter import config_from_contract, make_env
     contract = load_episode(args.dataset, selected[0], control_mode).contract
     config_from_contract(contract)
-    os.environ.setdefault('VK_ICD_FILENAMES', '/usr/share/vulkan/icd.d/lvp_icd.json')
+    os.environ.setdefault('VK_ICD_FILENAMES', str(ROOT / '.runtime/mesa-env/share/vulkan/icd.d/lvp_icd.x86_64.json'))
     os.environ.setdefault('MPLCONFIGDIR', str(ROOT / '.runtime/matplotlib'))
     # CPU 仿真及软件 Vulkan；策略计算和 W&B 不参与录像。
     env = make_env(max_episode_steps=max(16, report['steps_min_median_max'][2]), render_mode='rgb_array',

@@ -22,7 +22,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.dont_write_bytecode = True
 sys.path[:0] = [str(ROOT), str(ROOT / "examples/baselines/flow_dp3")]
-os.environ.setdefault("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.json")
+os.environ.setdefault("VK_ICD_FILENAMES", str(ROOT / ".runtime/mesa-env/share/vulkan/icd.d/lvp_icd.x86_64.json"))
 os.environ.setdefault("MS_ASSET_DIR", str(ROOT / ".runtime/maniskill"))
 os.environ.setdefault("MPLCONFIGDIR", str(HERE / ".cache/matplotlib"))
 for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):

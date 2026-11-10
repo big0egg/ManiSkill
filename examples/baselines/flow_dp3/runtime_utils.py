@@ -46,7 +46,7 @@ def select_device(name):
     if name not in ("cpu", "cuda:0"):
         raise ValueError("当前入口支持 cpu 或 cuda:0")
     if name == "cuda:0" and not torch.cuda.is_available():
-        raise RuntimeError("当前进程无法访问 PPU；请在 DSW 终端初始化 SDK 后运行，或显式 --device cpu 做烟雾测试")
+        raise RuntimeError("当前进程无法访问显卡；请检查 ROCm 版 PyTorch、驱动和设备权限，或显式 --device cpu 做烟雾测试")
     return torch.device(name)
 
 

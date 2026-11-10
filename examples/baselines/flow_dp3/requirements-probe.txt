@@ -1,5 +1,5 @@
-# 阿里云 PPU / Python 3.12：torch、torchvision、torchaudio 继承镜像。
-# 安装时必须使用 README 生成的 constraints-ppu.txt，避免替换 PPU 框架。
+# 本地 ROCm / Python 3.12：先按 README 安装 ROCm 版 torch 和 torchvision。
+# 安装时使用 .runtime/constraints-rocm.txt，保护已验证的框架与仿真版本。
 # 覆盖本仓库 setup.py 的运行依赖，核心仿真版本固定供第一阶段验证。
 numpy>=1.22
 scipy

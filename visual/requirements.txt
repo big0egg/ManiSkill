@@ -1,4 +1,4 @@
-# Linux 云实例使用 CPU wheel；桌面平台使用标准 Open3D wheel。
+# Linux x86_64 使用 CPU wheel；其他平台使用标准 Open3D wheel。
 open3d-cpu==0.19.0; sys_platform == 'linux' and platform_machine == 'x86_64'
 open3d==0.19.0; sys_platform != 'linux' or platform_machine != 'x86_64'
 numpy>=1.22,<2

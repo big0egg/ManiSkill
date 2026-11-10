@@ -1,4 +1,4 @@
-"""隔离检查 PPU 计算、CPU 仿真与点云渲染；不训练策略。
+"""隔离检查本地 ROCm 显卡计算、CPU 仿真与点云渲染；不训练策略。
 
 每项检查运行在独立子进程，驱动异常、崩溃或超时不会中断其余检查。
 不安装软件、不自动下载资产、不修改驱动；--output 显式保存 JSON 报告。
@@ -17,7 +17,7 @@ import sys
 import time
 import traceback
 
-CHECKS = ("metadata", "torch-cpu", "torch-ppu", "encoder-cpu", "encoder-ppu",
+CHECKS = ("metadata", "torch-cpu", "torch-gpu", "encoder-cpu", "encoder-gpu",
           "sim", "pointcloud")
 RESULT_PREFIX = "FLOW_DP3_PROBE_RESULT="
 
@@ -31,42 +31,45 @@ def check_metadata():
         except metadata.PackageNotFoundError:
             packages[name] = None
     icds = []
-    for directory in ("/usr/share/vulkan/icd.d", "/etc/vulkan/icd.d"):
+    for directory in ("/usr/share/vulkan/icd.d", "/etc/vulkan/icd.d",
+                      Path(__file__).resolve().parents[3] / ".runtime/mesa-env/share/vulkan/icd.d"):
         icds.extend(str(p) for p in sorted(Path(directory).glob("*.json")))
     return {"python": sys.version, "executable": sys.executable,
             "platform": platform.platform(), "packages": packages,
             "vulkan_icds": icds, "VK_ICD_FILENAMES": os.getenv("VK_ICD_FILENAMES"),
-            "CUDA_VISIBLE_DEVICES": os.getenv("CUDA_VISIBLE_DEVICES")}
+            "CUDA_VISIBLE_DEVICES": os.getenv("CUDA_VISIBLE_DEVICES"),
+            "HIP_VISIBLE_DEVICES": os.getenv("HIP_VISIBLE_DEVICES"),
+            "ROCR_VISIBLE_DEVICES": os.getenv("ROCR_VISIBLE_DEVICES")}
 
 
-def get_device(use_ppu):
+def get_device(use_gpu):
     import torch
-    if use_ppu and not torch.cuda.is_available():
-        raise RuntimeError("当前进程无法访问 PPU 的 CUDA 接口；请在可访问 PPU 的实例终端重试。")
-    return torch.device("cuda:0" if use_ppu else "cpu")
+    if use_gpu and not torch.cuda.is_available():
+        raise RuntimeError("当前进程无法访问显卡；请检查 ROCm 版 PyTorch、驱动、设备权限及设备屏蔽变量。")
+    return torch.device("cuda:0" if use_gpu else "cpu")
 
 
-def check_torch(use_ppu):
+def check_torch(use_gpu):
     import torch
-    device = get_device(use_ppu)
+    device = get_device(use_gpu)
     torch.manual_seed(42)
     x = torch.randn(16, 16, device=device, requires_grad=True)
     loss = (x @ x.T).square().mean()
     loss.backward()
-    if use_ppu:
+    if use_gpu:
         torch.cuda.synchronize(device)
     if not torch.isfinite(loss) or not torch.isfinite(x.grad).all():
         raise RuntimeError("矩阵计算或反向传播出现 NaN/Inf")
     return {"device": str(device), "torch": torch.__version__,
-            "cuda_build": torch.version.cuda,
-            "device_name": torch.cuda.get_device_name(device) if use_ppu else "CPU",
+            "cuda_build": torch.version.cuda, "hip_build": torch.version.hip,
+            "device_name": torch.cuda.get_device_name(device) if use_gpu else "CPU",
             "loss": float(loss.detach().cpu()), "gradient_norm": float(x.grad.norm().cpu())}
 
 
-def check_encoder(args, use_ppu):
+def check_encoder(args, use_gpu):
     import torch
     from ee_relation_encoder import EERelationPointNetPPEncoder
-    device = get_device(use_ppu)
+    device = get_device(use_gpu)
     torch.manual_seed(42)
     # 半径仅用于合成数据烟雾验证；不作为 ManiSkill 任务训练半径。
     relative = torch.rand(2, args.num_points, 3, device=device) * 0.4 - 0.2
@@ -86,7 +89,7 @@ def check_encoder(args, use_ppu):
         raise RuntimeError("编码器参数梯度缺失或包含 NaN/Inf")
     if not any(g.norm() > 0 for g in grads):
         raise RuntimeError("编码器参数梯度全部为零")
-    if use_ppu:
+    if use_gpu:
         torch.cuda.synchronize(device)
     return {"device": str(device), "input_shape": list(x.shape),
             "output_shape": list(output.shape), "input_gradient_norm": float(x.grad.norm().cpu()),
@@ -169,9 +172,9 @@ def execute_check(name, args):
     if name == "metadata":
         return check_metadata()
     if name.startswith("torch-"):
-        return check_torch(name.endswith("ppu"))
+        return check_torch(name.endswith("gpu"))
     if name.startswith("encoder-"):
-        return check_encoder(args, name.endswith("ppu"))
+        return check_encoder(args, name.endswith("gpu"))
     return check_env(args, visual=name == "pointcloud")
 
 

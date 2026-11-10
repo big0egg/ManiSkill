@@ -101,12 +101,12 @@ HDF5按 `traj_<源ID>/frame_<帧号>` 保存原生RGB、segmentation、裁剪后
 从项目根目录重跑小批量对照，须使用新的输出目录；程序拒绝覆盖现有结果：
 
 ```bash
-.venv-ppu/bin/python -B testpointcloud/camera_experiment.py \
+.runtime/env-rocm/bin/python -B testpointcloud/camera_experiment.py \
   --cameras legacy128_90 low_left256_60 balanced_right256_50 \
   --episodes 9 27 66 --frames 0 \
   --output testpointcloud/runs/my-camera-validation
 
-.venv-ppu/bin/python -B testpointcloud/camera_experiment.py \
+.runtime/env-rocm/bin/python -B testpointcloud/camera_experiment.py \
   --mode action_replay --cameras low_left256_60 \
   --episodes 9 27 66 \
   --output testpointcloud/runs/my-camera-replay
