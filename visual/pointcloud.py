@@ -302,7 +302,7 @@ def export(episode, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=Path, default=DEFAULT_DATASET)
-    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='选择ee/joint分支；默认ee')
+    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='仅校验EE控制器，默认跟随数据')
     parser.add_argument('--episode', default='0', help='episode 索引或完整名称')
     parser.add_argument('--frame', type=int, default=0)
     parser.add_argument('--pick-points', action='store_true', help='点击实际点显示基座坐标、相对位移、距离与原始索引')

@@ -3,7 +3,8 @@
 来自用户提供的参考算法，保持编码器结构；运行时仅依赖本文件和 PyTorch，
 不导入参考项目，不依赖 CUDA/PyTorch3D 扩展。
 
-输入已经是同一固定坐标轴下的 [相对位移/L, 距离/L]，不可重复减末端。
+原 forward 接收 [q, ||q||]：D 的 q 为基座轴向相对位移/L，C 的 q 为基座 XYZ/L。
+统一 encode 负责两种语义的适配；网络内部不可再减末端。
 几何索引不求导；gather、MLP、关系评分和聚合保留梯度。
 """
 import math
@@ -112,7 +113,8 @@ class EERelationPointNetPPEncoder(nn.Module):
     def __init__(self, radius1=None, radius2=None, output_dim=64,
                  num_centers=(128, 32), num_neighbors=(32, 32),
                  local_relation_mode="explicit_anchor", readout_mode="dual",
-                 geometry_backend="torch", debug_checks=False):
+                 geometry_backend="torch", debug_checks=False,
+                 input_representation="ee_vector_distance"):
         super().__init__()
         if len(num_centers) != 2 or len(num_neighbors) != 2:
             raise ValueError("num_centers and num_neighbors must each contain two integers")
@@ -133,6 +135,9 @@ class EERelationPointNetPPEncoder(nn.Module):
         self.output_dim = _positive_int(output_dim, "output_dim")
         self.local_relation_mode, self.readout_mode = local_relation_mode, readout_mode
         self.debug_checks = bool(debug_checks)
+        if input_representation not in ("xyz", "ee_vector_distance"):
+            raise ValueError(f"Unsupported input_representation: {input_representation}")
+        self.input_representation = input_representation
         self.sa1 = _shared_mlp((8 if local_relation_mode == "explicit_anchor" else 7, 64, 64, 128))
         self.sa2 = _shared_mlp((135 if local_relation_mode == "explicit_anchor" else 131, 128, 128, 256))
         self.region_projection = _shared_mlp((260, 256))
@@ -140,6 +145,21 @@ class EERelationPointNetPPEncoder(nn.Module):
             self.score_a = nn.Sequential(nn.Linear(259, 64), nn.ReLU(), nn.Linear(64, 1))
             self.score_b = nn.Sequential(nn.Linear(1, 16), nn.ReLU(), nn.Linear(16, 1))
         self.output_projection = nn.Linear(512 if readout_mode == "dual" else 256, output_dim)
+
+    def encode(self, geometry_xyz, point_features):
+        """C lifts XYZ with its base-origin norm; D keeps the original forward.
+
+        This branch has no access to TCP or robot state. No zero padding is
+        used to invent an attribute. C and D have identical learned layers.
+        """
+        from pointcloud_inputs import validate_encoder_inputs
+        channels = 3 if self.input_representation == "xyz" else 4
+        validate_encoder_inputs(geometry_xyz, point_features, channels)
+        if self.input_representation == "xyz":
+            x = torch.cat((point_features, point_features.norm(dim=-1, keepdim=True)), dim=-1)
+        else:
+            x = point_features
+        return self.forward(x)
 
     def forward(self, x, return_debug=False):
         if x.ndim != 3 or x.shape[-1] != 4 or x.shape[0] == 0 or x.shape[1] < self.num_centers[0]:
@@ -154,7 +174,7 @@ class EERelationPointNetPPEncoder(nn.Module):
             eps = torch.finfo(x.dtype).eps
             if not torch.allclose(x[..., 3].float(), x[..., :3].float().norm(dim=-1),
                                   atol=max(1e-5, 2 * eps), rtol=max(1e-4, 2 * eps)):
-                raise ValueError("Distance channel is inconsistent with ||relative displacement||; check input normalization/frame")
+                raise ValueError("Scalar channel is inconsistent with the chosen coordinate norm; check representation/scale")
         u0 = x[..., :3]
         i1 = farthest_point_indices(u0, self.num_centers[0])
         u1 = gather_points(u0, i1)

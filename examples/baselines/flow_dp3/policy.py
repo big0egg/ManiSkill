@@ -1,4 +1,4 @@
-"""独立 FlowDP3：末端关系编码器 + 本体 MLP + FiLM U-Net + 原分段一致性目标。
+"""独立 FlowDP3：可选点云编码器 + 本体 MLP + FiLM U-Net + 原分段一致性目标。
 
 保留用户参考 flow_dp3.py 的全局条件路径、时间尺度、两时刻损失与采样公式。
 使用任务记录的 state/action 维度；不输入 RGB/触觉。
@@ -12,11 +12,19 @@ import torch
 from torch import nn
 
 from conditional_unet1d import ConditionalUnet1D
-from ee_relation_encoder import EERelationPointNetPPEncoder
+from pointcloud_encoders import build_pointcloud_encoder
+from pointcloud_inputs import INPUT_VERSION, ABLATIONS, build_pointcloud_inputs
 
 
 @dataclass(frozen=True)
 class PolicyConfig:
+    pointcloud_representation: str = "ee_vector_distance"
+    pointcloud_encoder_type: str = "ee_relation_pointnetpp"
+    pointcloud_input_version: int = INPUT_VERSION
+    pointcloud_num_centers: tuple = (128, 32)
+    pointcloud_num_neighbors: tuple = (32, 32)
+    local_relation_mode: str = "explicit_anchor"
+    readout_mode: str = "dual"
     horizon: int = 16
     n_obs_steps: int = 2
     n_action_steps: int = 8
@@ -41,6 +49,18 @@ class PolicyConfig:
     solver: str = "consistency"
 
     def __post_init__(self):
+        if (self.pointcloud_representation, self.pointcloud_encoder_type) not in ABLATIONS.values():
+            raise ValueError("Invalid point-cloud representation or encoder")
+        if type(self.pointcloud_input_version) is not int or self.pointcloud_input_version != INPUT_VERSION:
+            raise ValueError("需要新的四组点云输入版本；旧数据和权重已停用")
+        for name in ("pointcloud_num_centers", "pointcloud_num_neighbors"):
+            value = getattr(self, name)
+            if len(value) != 2 or any(type(x) is not int or x < 1 for x in value):
+                raise ValueError(f"{name} must contain two positive integers")
+        if self.pointcloud_num_centers[1] > self.pointcloud_num_centers[0]:
+            raise ValueError("SA2 centers must not exceed SA1 centers")
+        if self.local_relation_mode not in ("explicit_anchor", "raw_features") or self.readout_mode not in ("dual", "global_max"):
+            raise ValueError("Invalid relation encoder settings")
         divisor = 2 ** (len(self.down_dims) - 1)
         if len(self.down_dims) < 2 or self.horizon % divisor or not 1 <= self.n_obs_steps <= self.horizon:
             raise ValueError("horizon 必须可被 U-Net 下采样倍数整除，观测步数必须有效")
@@ -93,11 +113,7 @@ class FlowDP3(nn.Module):
     def __init__(self, config: PolicyConfig):
         super().__init__()
         self.config = config
-        self.distance_encoder = EERelationPointNetPPEncoder(
-            radius1=config.radius1_m / config.length_scale,
-            radius2=config.radius2_m / config.length_scale, output_dim=64,
-            num_centers=(128, 32), num_neighbors=(32, 32),
-            local_relation_mode="explicit_anchor", readout_mode="dual", geometry_backend="torch")
+        self.distance_encoder = build_pointcloud_encoder(config)
         self.state_mlp = nn.Sequential(nn.Linear(config.state_dim, 64), nn.ReLU(), nn.Linear(64, 64))
         self.model = ConditionalUnet1D(
             input_dim=config.action_dim, global_cond_dim=128 * config.n_obs_steps,
@@ -109,16 +125,16 @@ class FlowDP3(nn.Module):
 
     def condition(self, obs):
         config = self.config
-        distance = obs["pointcloud_distance"]
         state = obs["state"]
-        if distance.ndim != 4 or distance.shape[1] != config.n_obs_steps or distance.shape[-1] != 4:
-            raise ValueError("距离点云应为 [B,n_obs_steps,N,4]")
-        if state.shape != (*distance.shape[:2], config.state_dim):
+        xyz = obs.get("pointcloud_xyz")
+        if xyz is None or xyz.ndim != 4 or xyz.shape[1] != config.n_obs_steps:
+            raise ValueError("独立 XYZ 应为 [B,n_obs_steps,N,3]；请重新录制数据")
+        if state.shape != (*xyz.shape[:2], config.state_dim):
             raise ValueError("状态/点云批次与时间维度不匹配")
-        # 点云已按物理契约统一除以 L，这里保持原样，不做逐通道归一化。
-        point_features = self.distance_encoder(distance.flatten(0, 1))
+        geometry, features = build_pointcloud_inputs(obs, config.pointcloud_representation, config.length_scale)
+        point_features = self.distance_encoder.encode(geometry, features)
         state_features = self.state_mlp(self.state_normalizer.normalize(state).flatten(0, 1))
-        return torch.cat((point_features, state_features), dim=-1).reshape(distance.shape[0], -1)
+        return torch.cat((point_features, state_features), dim=-1).reshape(xyz.shape[0], -1)
 
     def compute_loss(self, batch):
         config = self.config

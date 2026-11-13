@@ -18,7 +18,8 @@ from obs_adapter import ObservationConfig, adapt_observation, make_env, validate
 from task_metrics import task_metrics, demonstration_success, demonstration_trace_success
 from task_registry import TASKS, get_task, validate_source_env_kwargs
 from scene_bounds import get_scene_crop_bounds
-from control_modes import CONTROL_CHOICES, DUAL_LAYOUT
+from control_modes import CONTROL_CHOICES, check_control_mode
+from pointcloud_inputs import STORAGE_CONTRACT
 
 
 def file_hash(path):
@@ -146,7 +147,7 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
     mode = episode["control_mode"]
     if mode not in ("pd_joint_pos", contract["control_mode"]):
         raise ValueError(f"暂不支持从 {mode} 转换为 {contract['control_mode']}；"
-                         "双分支录制需要原始 pd_joint_pos 轨迹，不能补造动作标签")
+                         "专家关节轨迹必须转换为 EE 动作，不能补造动作标签")
     reset = dict(episode["reset_kwargs"])
     if isinstance(reset.get("seed"), list):
         reset["seed"] = reset["seed"][0]
@@ -179,7 +180,7 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
                     action = np.zeros_like(last_action)
                     action[-1] = last_action[-1]
                 else:
-                    action = last_action
+                    raise ValueError("策略仅支持 EE 保持控制")
                 info = target.step(action)[-1]
     except EpisodeLimitError as exc:
         return None, {"reason": str(exc)}
@@ -207,7 +208,7 @@ def replay_demo(target, original, traj, episode, contract, hold_steps):
 
 
 def save_demo(group, target, detail):
-    for key in ("pointcloud_distance", "state"):
+    for key in ("pointcloud_xyz", "pointcloud_distance", "state"):
         group.create_dataset(key, data=np.stack([obs[key] for obs in target.observations]), compression="lzf")
     group.create_dataset("action", data=np.stack(target.actions))
     if target.task_metrics:
@@ -216,18 +217,6 @@ def save_demo(group, target, detail):
             metrics_group.create_dataset(key, data=[row[key] for row in target.task_metrics])
     group.attrs["metadata"] = json.dumps(detail)
 
-
-def recording_modes(env_id, requested):
-    task = get_task(env_id)
-    if requested in (None, "both") and env_id == "PickCube-v1":
-        return {"ee": ("pd_ee_delta_pose", 5), "joint": ("pd_joint_pos", 6)}
-    if requested == "both":
-        raise ValueError("双控制分支目前仅支持 PickCube；其他任务使用默认控制器或 --control-mode ee")
-    mode = {"ee": task.control_mode, "joint": "pd_joint_pos"}.get(requested, requested or task.control_mode)
-    if mode != task.control_mode and (env_id != "PickCube-v1" or mode != "pd_joint_pos"):
-        raise ValueError(f"{env_id} 不支持选择 {mode}")
-    version = (6 if mode == "pd_joint_pos" else 5) if env_id == "PickCube-v1" else task.contract_version
-    return {"joint" if mode == "pd_joint_pos" else "ee": (mode, version)}
 
 
 def prepare(args):
@@ -261,8 +250,7 @@ def prepare(args):
     if args.env_id is not None and args.env_id != env_id:
         raise ValueError(f"指定任务 {args.env_id} 与原始示范任务 {env_id} 不匹配")
     task = get_task(env_id)
-    modes = recording_modes(env_id, getattr(args, "control_mode", None))
-    dual = len(modes) == 2
+    check_control_mode(getattr(args, "control_mode", None), {"control_mode": task.control_mode})
     hold_steps = getattr(args, "hold_steps", None)
     hold_steps = task.hold_steps if hold_steps is None else hold_steps
     if hold_steps and not task.hold_steps:
@@ -275,46 +263,36 @@ def prepare(args):
     low, high = get_scene_crop_bounds(env_id)
     config = ObservationConfig(num_points=args.num_points, length_scale=args.length_scale,
                                crop_min=tuple(args.crop_min or low), crop_max=tuple(args.crop_max or high))
-    contracts = {key: config.contract(env_id=env_id, contract_version=version)
-                 for key, (_, version) in modes.items()}
-    attempts, rejected = 0, []
-    saved = {key: [] for key in modes}
-    targets, records = {}, {}
-    # Keep the trigger constant throughout each source episode and both branches.
-    # Unselected episodes skip RecordEpisode.capture_image(), not just MP4 encoding.
+    contract = config.contract(env_id=env_id)
+    attempts, rejected, saved = 0, [], []
     video_selection = {"enabled": False}
     started = time.monotonic()
     with ExitStack() as stack:
+        # Joint position control is private to expert generation/conversion.
         original = make_env("pd_joint_pos", visual=False, max_episode_steps=args.max_steps, env_id=env_id)
         stack.callback(original.close)
-        for key, contract in contracts.items():
-            env = make_env(max_episode_steps=args.max_steps, contract=contract,
-                           render_mode="rgb_array" if save_video else None)
-            if save_video:
-                from mani_skill.utils.wrappers.record import RecordEpisode
-                try:
-                    env = RecordEpisode(env, output_dir=str(video_dir / key), save_trajectory=False,
-                                        save_video=True, save_on_reset=False, info_on_video=False,
-                                        save_video_trigger=lambda _step: video_selection["enabled"],
-                                        video_fps=getattr(args, "video_fps", None) or env.unwrapped.control_freq)
-                except Exception:
-                    env.close()
-                    raise
-                records[key] = env
-            target = ObservationCollector(env, config, contract, args.max_steps)
-            stack.callback(target.close)
-            validate_env(target, contract)
-            targets[key] = target
+        env = make_env(max_episode_steps=args.max_steps, contract=contract,
+                       render_mode="rgb_array" if save_video else None)
+        record = None
+        if save_video:
+            from mani_skill.utils.wrappers.record import RecordEpisode
+            try:
+                env = RecordEpisode(env, output_dir=str(video_dir / "ee"), save_trajectory=False,
+                                    save_video=True, save_on_reset=False, info_on_video=False,
+                                    save_video_trigger=lambda _step: video_selection["enabled"],
+                                    video_fps=getattr(args, "video_fps", None) or env.unwrapped.control_freq)
+            except Exception:
+                env.close()
+                raise
+            record = env
+        target = ObservationCollector(env, config, contract, args.max_steps)
+        stack.callback(target.close)
+        validate_env(target, contract)
         with h5py.File(source, "r") as raw, h5py.File(temporary, "w") as prepared:
-            if dual:
-                prepared.attrs["layout"] = DUAL_LAYOUT
-                roots = {key: prepared.create_group(key) for key in modes}
-            else:
-                roots = {next(iter(modes)): prepared}
-            for key, root in roots.items():
-                root.attrs["contract"] = json.dumps(contracts[key], sort_keys=True)
+            prepared.attrs["contract"] = json.dumps(contract, sort_keys=True)
+            prepared.attrs["pointcloud_storage"] = json.dumps(STORAGE_CONTRACT, sort_keys=True)
             for episode in metadata["episodes"]:
-                count = len(next(iter(saved.values())))
+                count = len(saved)
                 if args.count and count >= args.count:
                     break
                 attempts += 1
@@ -325,58 +303,41 @@ def prepare(args):
                     continue
                 record_this_episode = save_video and count % video_every == 0
                 video_selection["enabled"] = record_this_episode
-                details, failures = {}, {}
-                for key, target in targets.items():
-                    detail, failure = replay_demo(target, original, traj, episode, contracts[key], hold_steps)
-                    if failure is not None:
-                        failures[key] = failure
-                    else:
-                        details[key] = detail
-                if failures:
-                    rejected.append({"source_episode": identifier, "branches": failures})
-                    for record in records.values():
+                detail, failure = replay_demo(target, original, traj, episode, contract, hold_steps)
+                if failure is not None:
+                    rejected.append({"source_episode": identifier, **failure})
+                    if record is not None:
                         record.flush_video(save=False)
-                    print(f"回放 {identifier}: 拒绝，{failures}", flush=True)
+                    print(f"回放 {identifier}: 拒绝，{failure}", flush=True)
                     continue
-                for key, target in targets.items():
-                    detail = details[key]
-                    detail["video_recorded"] = record_this_episode
-                    if record_this_episode:
-                        name = f"episode_{count:05d}_seed_{detail['seed']}"
-                        record = records[key]
-                        frames = len(record.render_images)
-                        if frames != len(target.actions) + 1:
-                            raise RuntimeError(f"{key} 视频帧数与 T+1 观测不一致：{frames}")
-                        record.flush_video(name=name)
-                        detail.update(video_path=os.path.relpath(video_dir / key / (name + ".mp4"), output.parent),
-                                      video_fps=record.video_fps, video_frames=frames)
-                    save_demo(roots[key].create_group(f"episode_{count:05d}"), target, detail)
-                    saved[key].append(detail)
-                print(f"回放 {identifier}: 成功，{ {key: d['steps'] for key, d in details.items()} } steps，已保存 {count + 1}", flush=True)
-            count = len(next(iter(saved.values())))
-            common = {"source": str(source), "source_sha256": file_hash(source),
-                      "source_json_sha256": file_hash(source.with_suffix(".json")),
-                      "source_type": metadata.get("source_type", "unknown"), "hold_steps": hold_steps,
-                      "attempted": attempts, "saved": count, "rejected": rejected,
-                      "save_video": save_video, "video_every": video_every,
-                      "video_sampling": "saved_episode_index_mod_interval_eq_zero",
-                      "elapsed_seconds": time.monotonic() - started}
-            branches = {}
-            for key, root in roots.items():
-                branch = {**common, "contract": contracts[key], "episodes": saved[key]}
-                root.attrs["manifest"] = json.dumps(branch)
-                branches[key] = branch
-            manifest = ({**common, "layout": DUAL_LAYOUT, "default_control": "ee", "branches": branches,
-                         "paired_source_episodes": [d["source_episode"] for d in saved["ee"]]}
-                        if dual else next(iter(branches.values())))
+                detail["video_recorded"] = record_this_episode
+                if record_this_episode:
+                    name = f"episode_{count:05d}_seed_{detail['seed']}"
+                    frames = len(record.render_images)
+                    if frames != len(target.actions) + 1:
+                        raise RuntimeError("EE 视频帧数与 T+1 观测不一致")
+                    record.flush_video(name=name)
+                    detail.update(video_path=os.path.relpath(video_dir / "ee" / (name + ".mp4"), output.parent),
+                                  video_fps=record.video_fps, video_frames=frames)
+                save_demo(prepared.create_group(f"episode_{count:05d}"), target, detail)
+                saved.append(detail)
+                print(f"回放 {identifier}: EE 成功，已保存 {len(saved)}", flush=True)
+            manifest = {"source": str(source), "source_sha256": file_hash(source),
+                        "source_json_sha256": file_hash(source.with_suffix(".json")),
+                        "source_type": metadata.get("source_type", "unknown"), "hold_steps": hold_steps,
+                        "attempted": attempts, "saved": len(saved), "rejected": rejected,
+                        "save_video": save_video, "video_every": video_every,
+                        "video_sampling": "saved_episode_index_mod_interval_eq_zero",
+                        "elapsed_seconds": time.monotonic() - started,
+                        "contract": contract, "pointcloud_storage": STORAGE_CONTRACT, "episodes": saved}
             prepared.attrs["manifest"] = json.dumps(manifest)
-        if not count:
-            raise RuntimeError("没有回放成功的示范；未生成可训练输出")
+        if not saved:
+            raise RuntimeError("没有回放成功的 EE 示范；未生成可训练输出")
         temporary.rename(output)
         output.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-        print(f"输出 {output}；成功 {count}/{attempts}，分支={list(modes)}", flush=True)
-        if args.count and count < args.count:
-            raise RuntimeError(f"仅得到 {count}/{args.count} 条成功示范；已保存，需补充原始数据")
+        print(f"输出 {output}；EE 成功 {len(saved)}/{attempts}", flush=True)
+        if args.count and len(saved) < args.count:
+            raise RuntimeError(f"仅得到 {len(saved)}/{args.count} 条成功示范；已保存，需补充原始数据")
 
 
 def main():
@@ -391,13 +352,13 @@ def main():
     parser.add_argument("--max-attempts", type=int, default=100)
     parser.add_argument("--max-steps", type=int, help="默认按任务注册表；Draw不得超过300")
     parser.add_argument("--num-points", type=int, default=512)
-    parser.add_argument("--control-mode", choices=("both",) + CONTROL_CHOICES,
-                        help="PickCube默认both，保存同源ee/joint双分支；也可单独录制ee或joint，其他任务默认原控制器")
+    parser.add_argument("--control-mode", choices=CONTROL_CHOICES,
+                        help="仅支持EE；默认使用任务注册的末端控制器")
     parser.add_argument("--save-video", action=argparse.BooleanOptionalAction, default=True,
                         help="默认每10条成功示范抽1条完整场景MP4；--no-save-video关闭")
     parser.add_argument("--video-every", type=int, default=10,
-                        help="每N条成功示范录制1条，默认10：第1/11/21条；1表示每条，两分支使用同一抽样编号")
-    parser.add_argument("--video-dir", type=Path, help="默认 <数据集名称>-videos-full/{ee,joint}")
+                        help="每N条成功示范录制1条，默认10：第1/11/21条；1表示每条")
+    parser.add_argument("--video-dir", type=Path, help="默认 <数据集名称>-videos-full/ee")
     parser.add_argument("--video-fps", type=int, help="默认环境控制频率；仅影响视频播放速度")
     parser.add_argument("--hold-steps", type=int, help="真实保持固定目标：Pick默认40，Lift/Place/Pull/Tool/YCB默认20，其他任务默认0")
     parser.add_argument("--length-scale", type=float, default=1.0)

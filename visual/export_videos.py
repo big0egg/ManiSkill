@@ -89,8 +89,7 @@ class Dashboard:
         lo, hi = field['qvel']; qvel = s[:, lo:hi]
         auxiliary = episode.tcp if episode.goals is None else np.column_stack((qpos[:, 7:9], np.linalg.norm(episode.tcp - episode.goals, axis=1)))
         curves = [qpos[:, :7], qvel[:, :7], auxiliary, episode.actions]
-        action_title = ('Saved joint targets (rad) / gripper (normalized)' if episode.contract['control_mode'] == 'pd_joint_pos'
-                        else 'Saved action (normalized)')
+        action_title = 'Saved EE action (normalized)'
         titles = ['Joint position (rad)', 'Joint velocity (rad/s)', 'TCP position XYZ (m)' if episode.goals is None else 'Finger positions / TCP-goal distance (m)', action_title]
         self.cursors = []
         for ax, data, title in zip(self.curve_axes, curves, titles):
@@ -180,6 +179,7 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
     dashboard = Dashboard(ep, args.near_radius)
     state_errors = {key: 0. for key in ep.contract['state_fields']}
     point_error = 0.
+    xyz_error = 0.
     mismatch_frames = []
     success_once = False
     fps = args.fps or env.unwrapped.control_freq
@@ -197,11 +197,15 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
                               for key, (lo, hi) in ep.contract['state_fields'].items()}
             # 逐索引严格比较，采样顺序变化也算不一致，避免把回放视频当成原始 RGB。
             current_point_error = float(np.max(np.abs(features - ep.features[frame])))
+            current_xyz_error = (float(np.max(np.abs(adapted['pointcloud_xyz'][0].numpy() - ep.xyz[frame])))
+                                 if ep.xyz is not None else 0.)
+            xyz_error = max(xyz_error, current_xyz_error)
             for key, error in current_errors.items():
                 state_errors[key] = max(state_errors[key], error)
             point_error = max(point_error, current_point_error)
             matching = all(value <= (args.velocity_tolerance if key == 'qvel' else args.state_tolerance)
                            for key, value in current_errors.items()) and current_point_error <= args.pointcloud_tolerance
+            matching = matching and current_xyz_error <= args.pointcloud_tolerance * ep.scale
             if not matching:
                 mismatch_frames.append(frame)
             success = bool(torch.as_tensor(info['success']).item())
@@ -228,6 +232,7 @@ def replay_episode(ep, env, raw, raw_episodes, args, destination):
     return {'episode': ep.name, 'source_episode': source_id, 'video': str(destination.resolve()),
             'frames': decoded, 'fps': fps, 'max_state_errors': state_errors,
             'max_pointcloud_feature_error': point_error, 'matching_observations': not mismatch_frames,
+            'max_independent_xyz_error_m': xyz_error,
             'mismatch_frames': mismatch_frames, 'replay_success_once': success_once,
             'replay_success_end': success, 'elapsed_seconds': time.monotonic() - started}
 
@@ -305,7 +310,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=Path, default=DEFAULT_DATASET)
-    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='选择ee/joint分支；默认ee')
+    parser.add_argument('--control-mode', choices=CONTROL_CHOICES, help='仅校验EE控制器，默认跟随数据')
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--episodes', nargs='+', help='索引或 episode 完整名称；默认5条代表轨迹')
     selection.add_argument('--all', action='store_true', help='导出训练集全部轨迹，而非全部原始轨迹')

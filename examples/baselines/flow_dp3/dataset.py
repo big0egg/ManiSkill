@@ -1,4 +1,4 @@
-"""按 episode 划分；历史契约保留旧窗口，v5/v6/v7覆盖末尾真实状态。"""
+"""按 episode 划分；历史契约保留旧窗口，EE保持契约覆盖末尾真实状态。"""
 from __future__ import annotations
 
 import json
@@ -10,6 +10,7 @@ from torch.utils.data import Dataset
 
 from obs_adapter import config_from_contract
 from control_modes import select_dataset_group
+from pointcloud_inputs import STORAGE_CONTRACT
 
 
 class DemoDataset(Dataset):
@@ -24,6 +25,8 @@ class DemoDataset(Dataset):
             raise ValueError("需要 train/val 划分及 0 < val_ratio < 1")
         with h5py.File(self.path, "r") as stream:
             root, self.contract, self.manifest = select_dataset_group(stream, control_mode)
+            if json.loads(root.attrs.get("pointcloud_storage", "null")) != STORAGE_CONTRACT:
+                raise ValueError("需要新录制的独立 XYZ 存储版本；旧数据已停用")
             self.group_name = root.name
             config_from_contract(self.contract)
             episodes = sorted(root.keys())
@@ -35,8 +38,10 @@ class DemoDataset(Dataset):
             for name in self.episodes:
                 group = root[name]
                 length = len(group["action"])
-                if group["state"].shape != (length + 1, self.contract["state_dim"]) or group["pointcloud_distance"].shape != (
-                    length + 1, self.contract["pointcloud"]["num_points"], 4
+                if "pointcloud_xyz" not in group:
+                    raise ValueError("旧数据缺少独立 pointcloud_xyz，请重新录制 EE 数据")
+                if group["state"].shape != (length + 1, self.contract["state_dim"]) or group["pointcloud_xyz"].shape != (
+                    length + 1, self.contract["pointcloud"]["num_points"], 3
                 ) or group["action"].shape != (length, self.contract["action_dim"]):
                     raise ValueError(f"{name} 的 T+1 观测 / T 动作形状异常")
                 if not json.loads(group.attrs["metadata"])["success_end"]:
@@ -69,13 +74,13 @@ class DemoDataset(Dataset):
             if key == "action" and self.contract.get("sequence_sampling", {}).get("tail_action") == "zero_arm_keep_gripper":
                 values[raw_indices >= length, :-1] = 0
             return torch.from_numpy(values)
-        sample = {"obs": {"pointcloud_distance": read("pointcloud_distance", self.n_obs_steps),
-                          "state": read("state", self.n_obs_steps)}, "action": read("action", self.horizon)}
+        state = read("state", self.n_obs_steps)
+        tcp_start = self.contract["state_fields"]["tcp_base_pose_wxyz"][0]
+        sample = {"obs": {"pointcloud_xyz": read("pointcloud_xyz", self.n_obs_steps),
+                          "ee_position": state[:, tcp_start:tcp_start + 3], "state": state},
+                  "action": read("action", self.horizon)}
         if not all(torch.isfinite(x).all() for x in [*sample["obs"].values(), sample["action"]]):
             raise ValueError(f"{name} 含非有限数据")
-        distance = sample["obs"]["pointcloud_distance"]
-        if (distance[..., 3] - distance[..., :3].norm(dim=-1)).abs().max() > 1e-5:
-            raise ValueError(f"{name} 的距离通道与 xyz 不匹配")
         return sample
 
     def normalizer_data(self):

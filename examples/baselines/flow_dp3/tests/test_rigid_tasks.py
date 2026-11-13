@@ -15,6 +15,7 @@ from transforms3d.euler import euler2quat
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DemoDataset
+from pointcloud_inputs import STORAGE_CONTRACT
 from obs_adapter import ObservationConfig, adapt_observation, config_from_contract
 from scene_bounds import get_scene_crop_bounds
 from task_metrics import demonstration_success
@@ -46,7 +47,7 @@ class RigidTaskTests(unittest.TestCase):
         goal_world = (base_pose * Pose.create_from_pq(p=[.315, -.1, .001])).p
         obs = {"agent": {"qpos": torch.zeros(1, 9), "qvel": torch.zeros(1, 9)},
                "extra": {"goal_pos": goal_world, "obj_pose": "must never read this", "success": True}}
-        with patch("obs_adapter.pointcloud_features", return_value=(torch.zeros(1, 512, 4), {})):
+        with patch("obs_adapter.pointcloud_features", return_value=(torch.zeros(1, 512, 4), {}, torch.zeros(1, 512, 3))):
             adapted, _ = adapt_observation(obs, agent, config_from_contract(contract), contract=contract)
         torch.testing.assert_close(adapted["state"][0, 25:], torch.tensor([.315, -.1, .001]), atol=1e-6, rtol=1e-6)
 
@@ -58,12 +59,14 @@ class RigidTaskTests(unittest.TestCase):
                 path = Path(directory)/"data.h5"
                 with h5py.File(path, "w") as f:
                     f.attrs["contract"] = json.dumps(contract)
+                    f.attrs["pointcloud_storage"] = json.dumps(STORAGE_CONTRACT)
                     f.attrs["manifest"] = "{}"
                     for i in range(2):
                         g = f.create_group(f"episode_{i:05d}")
                         g.attrs["metadata"] = '{"success_end": true}'
                         g["state"] = np.repeat(np.arange(4)[:, None], contract["state_dim"], axis=1).astype(np.float32)
                         g["pointcloud_distance"] = np.zeros((4, 512, 4), np.float32)
+                        g["pointcloud_xyz"] = np.zeros((4, 512, 3), np.float32)
                         g["action"] = np.ones((3, contract["action_dim"]), np.float32) * .5
                 data = DemoDataset(path, horizon=16)
                 self.assertEqual(len(data), 4)

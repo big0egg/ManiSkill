@@ -12,6 +12,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DemoDataset
+from pointcloud_inputs import STORAGE_CONTRACT
 from obs_adapter import ObservationConfig, config_from_contract, make_env, pointcloud_features
 from mani_skill.utils.task_pointcloud import pointcloud_sensor_configs
 from unittest.mock import patch
@@ -23,6 +24,7 @@ class DataContractTests(unittest.TestCase):
     def make_data(self, path):
         with h5py.File(path, "w") as stream:
             stream.attrs["contract"] = json.dumps(ObservationConfig(num_points=128).contract(contract_version=4))
+            stream.attrs["pointcloud_storage"] = json.dumps(STORAGE_CONTRACT)
             stream.attrs["manifest"] = "{}"
             for i in range(3):
                 group = stream.create_group(f"episode_{i:05d}")
@@ -30,6 +32,7 @@ class DataContractTests(unittest.TestCase):
                 group["state"] = np.repeat((100 * i + np.arange(7))[:, None], 28, axis=1).astype(np.float32)
                 group["action"] = np.repeat(np.arange(6)[:, None], 7, axis=1).astype(np.float32)
                 group["pointcloud_distance"] = np.zeros((7, 128, 4), dtype=np.float32)
+                group["pointcloud_xyz"] = np.zeros((7, 128, 3), dtype=np.float32)
 
     def test_episode_split_and_action_alignment(self):
         with tempfile.TemporaryDirectory() as directory:

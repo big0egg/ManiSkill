@@ -2,7 +2,7 @@
 
 ![仿真环境与机器人示例](figures/teaser.jpg)
 
-本仓库在 [ManiSkill 3](https://maniskill.readthedocs.io/en/latest/) 中独立接入 `flow_dp3`，点云编码器为 `ee_relation_pointnetpp`。目前接入十个单任务接口，每个任务独立训练，共用距离点云编码器和 Flow DP3 算法。任务选择、数据录制、训练、恢复和推理命令见 [introduce.md](introduce.md)，历史验证范围和后续计划见 [version.md](version.md)。
+本仓库在 [ManiSkill 3](https://maniskill.readthedocs.io/en/latest/) 中独立接入 `flow_dp3`，支持普通 PointNet++ 与自研关系编码器的 A/B/C/D 四组点云消融，策略统一使用 EE 控制。目前接入十个单任务接口，每个任务独立训练，共用点云接口和 Flow DP3 算法。任务选择、数据录制、训练、恢复和推理命令见 [introduce.md](introduce.md)，当前版本及验证范围见 [version.md](version.md)。
 
 当前环境适配本地 **Ubuntu 22.04.5 + AMD Radeon RX 7700 XT 12GB**，运行方式为 **CPU 物理仿真 + Mesa CPU 软件 Vulkan 渲染 + ROCm 显卡策略计算**。
 
@@ -20,23 +20,9 @@ README 负责环境建立、依赖版本、设备检查和排错；introduce.md 
 
 ## 2. 当前验证状态
 
-以下为2026-11-10在本机完成的检查，验证任务为 PickCube-v1：
+当前实现已切换为独立 XYZ 数据与 v2 checkpoint，旧实验产物已按用户要求清理。当前代码与运行契约见 [四组接口说明](examples/baselines/flow_dp3/ABLATION.md)。
 
-| 环节 | 当前结果 |
-| --- | --- |
-| 主机 | Ubuntu 22.04.5、内核6.8、i5-13600KF、32GB内存、RX 7700 XT 12GB（gfx1101） |
-| 框架 | Python 3.12.12、PyTorch 2.9.1+rocm6.4；`pip check`通过 |
-| 显卡与编码器 | `cuda:0`矩阵运算、编码器前向/反向及有限梯度检查通过 |
-| CPU PhysX 与真实点云 | reset / step、512点采样、观测适配和编码通过；使用独立 Mesa 25.1.5 |
-| 数据准备 | 已生成3条成功末端控制示范，每条通过40步成功保持 |
-| 完整模型训练与恢复 | 原`[512,1024,2048]`主干，约2.55亿参数；FP32、batch size 2，完成10步训练并恢复到20步 |
-| 显存 | 真实数据训练峰值约5.86GiB，PyTorch预留峰值约5.89GiB |
-| 闭环评估与视频 | 2局、每局32步，成功率0/2；两段策略视频各33帧、一段专家视频115帧，均完成逐帧解码 |
-| W&B / Open3D | 主流程使用本地日志；本机尚未验证 W&B 登录和 Open3D 交互窗口 |
-
-20次更新只检查运行链路，不代表模型已收敛。100条示范、30000次更新和正式成功率评测尚未执行；其他任务的本机 ROCm 运行仍须逐项验收。
-
-本地报告为 [local-12gb-validation.json](.runtime/reports/local-12gb-validation.json)，验收数据、完整模型权重和视频位于 `.runtime/flow_dp3/local-12gb-check/`。这些文件不随 Git 上传，新检出需重建环境、重新生成数据或单独导入备份。
+本机 Python 3.12 / PyTorch 2.9.1+ROCm6.4、RX 7700 XT、CPU PhysX 与 Mesa 软件 Vulkan 环境继续使用。新验收使用新生成的 PickCube 示范，结果位于 `.runtime/flow_dp3/ablation-validation/`；短训练仅验收链路，不代表正式成功率。其他任务与完整模型长训练仍需分别验证。
 
 ## 3. 首次安装
 
@@ -169,7 +155,7 @@ bash visual/setup_env.sh
 
 脚本使用 `.runtime/env-rocm/bin/python`创建 `.runtime/visual-venv`，复用主环境框架，并按 constraints-rocm.txt 安装可视化依赖。新增包只写入 visual-venv，不向主环境或系统 Python 安装包。下载源可通过 VISUAL_PIP_INDEX_URL 指定。
 
-实际运行命令见 introduce.md 第2.4节和 [visual/README.md](visual/README.md)。本机已验证 Matplotlib PNG 导出与视频解码，Open3D 桌面交互尚未验收。
+实际运行命令见 introduce.md 第4节和 [visual/README.md](visual/README.md)。本机已验证 Matplotlib PNG 导出与视频解码，Open3D 桌面交互尚未验收。
 
 ## 4. 每次启动终端
 
@@ -243,7 +229,7 @@ python -B examples/baselines/flow_dp3/probe_runtime.py \
 
 本机已出现沙箱看不到显卡设备、Mesa 点云子进程以 -11 退出，而相同点云命令在本机终端通过的情况；遇到设备或渲染异常时，先以本机终端复核，不能只据沙箱结果判断驱动不可用。
 
-全部通过后，按 introduce.md 第3.6节检查完整模型的采集、batch size 2 训练、恢复和视频链路，再准备正式数据与长训练。可额外运行现有测试：
+全部通过后，按 introduce.md 录制新数据，先用 smoke 配置检查四组训练、恢复和视频链路，再准备正式数据与长训练。可额外运行现有测试：
 
 ```bash
 python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
@@ -253,63 +239,22 @@ python -B -m unittest discover -s examples/baselines/flow_dp3/tests -v
 
 ## 6. 代码与数据约定
 
-```text
-ManiSkill/
-├── README.md                         # 项目、环境与排错
-├── introduce.md                      # 实验命令、参数与结果位置
-├── mani_skill/                       # 仿真框架
-├── examples/baselines/flow_dp3/
-│   ├── ee_relation_encoder.py        # ee_relation_pointnetpp
-│   ├── obs_adapter.py                # 采集和评估共享的观测适配器
-│   ├── prepare_demos.py              # 原始轨迹生成、回放、成功过滤
-│   ├── dataset.py                    # episode 划分与序列窗口
-│   ├── policy.py / conditional_unet1d.py
-│   ├── train.py / evaluate.py        # 训练、恢复、闭环评估与录像
-│   ├── experiment_logging.py / import_training_logs.py
-│   ├── configs/                     # 小模型与完整模型
-│   ├── requirements-*.txt / tests/
-│   └── PROVENANCE.md / LICENSE-DP3
-└── .runtime/                         # 以下本地产物均不上传
-    ├── env-rocm/                     # Python 3.12 / ROCm 训练环境
-    ├── mesa-env/                     # Mesa 25.1.5 软件 Vulkan
-    ├── visual-venv/                  # 可选 Open3D 环境
-    ├── constraints-rocm.txt / packages-rocm.txt
-    ├── conda-rocm-explicit.txt / conda-mesa-explicit.txt
-    ├── reports/                     # 环境与链路验收报告
-    └── flow_dp3/                    # 数据、权重、日志、视频
-```
-
-FlowDP3 在本仓库独立运行，不导入参考 benchmark，不共用其环境或 checkpoint。移植范围、算法来源与许可证见 [PROVENANCE.md](examples/baselines/flow_dp3/PROVENANCE.md)。
-
-| 输入 / 输出 | 约定 |
+| 内容 | 当前约定 |
 | --- | --- |
-| 点云 | 每帧 `[512,4]`；前三通道为 `(基座系点坐标 − 基座系末端坐标) / L`，第四通道为相对位移模长 `/ L` |
-| 状态 | 28维：qpos 9、qvel 9、基座系末端位姿7（四元数 wxyz）、基座系目标位置3 |
-| 动作 | PickCube训练默认ee/v5为7维 `pd_ee_delta_pose`；joint/v6为8维 `pd_joint_pos`（7个目标角度＋夹爪）；录制默认同时保存两种分支，历史v1/v2仍为4维平移动作 |
-| 时间窗口 | 默认2帧观测、16步动作预测、每次执行8步动作 |
-| 仿真 / 相机 | 单环境 CPU PhysX；PickCube 点云相机 256×256、60°，世界位置 `(0.30,-0.30,0.35)`、注视 `(0,0,0.12)`；软件 Vulkan |
+| 策略控制 | 全部使用任务各自的 EE 控制器；PickCube 为7维位姿增量 |
+| 独立点云 | `pointcloud_xyz` 为基座系 `[T+1,N,3]`，米，在减 TCP 前直接保存 |
+| 距离缓存 | 同一批点的 `[p-e,‖p-e‖]/L`，供审计和可视化 |
+| A/B/C/D | XYZ/矢量距离与 PointNet++/自研编码器两项独立配置 |
+| 编码器接口 | 几何与点属性分别输入，统一输出64维 |
+| 策略条件 | 点云64维与原状态MLP64维拼接，默认2帧历史 |
+| 输出路径 | `<output>/<组别>/seed_<seed>/` |
+| 持久化 | v2 checkpoint 保存并严格校验表示、编码器及几何契约 |
 
-相机原生 `xyzw` 的第四通道是有效点标记，适配器会重新构造距离通道。处理顺序为有效点过滤 → 世界系转基座系 → 操作区裁剪 → 预采样4096点 → FPS → 相对末端特征。默认 PickCube crop 为基座系 `min=(0.44,-0.23,-0.03)`、`max=(0.79,0.25,0.52)` 米，优先保留目标与末端，允许裁掉部分机械臂，排除背景地面。点数不足直接报错；点云不做逐通道 min-max 或每帧中心化。
+主代码位于 `examples/baselines/flow_dp3/`：`pointcloud_inputs.py`构造两种表示，`pointnetpp_encoder.py`实现普通基线，`pointcloud_encoders.py`统一选择，`ee_relation_encoder.py`保留自研网络。`obs_adapter.py`与`dataset.py`向训练/推理提供同一观测格式。
 
-任务相机和 [scene_bounds.py](examples/baselines/flow_dp3/scene_bounds.py) 共用 [task_pointcloud.py](mani_skill/utils/task_pointcloud.py) 的配置。FPS 的512点是整个裁剪后场景的总数，包含桌面/画布。分类通过渲染器的实体 segmentation ID 与采样索引核对，仅用于诊断，不参与模型采样。下表的相机位置与注视点是世界坐标，crop是基座坐标，均以米为单位；五台基座相机均为256×256，Peg保留原腕部相机。相机调整针对实验使用的Panda/PandaWristCam/PandaStick；其他机器人不套用这些操作区。
+四组、数据字段、PointNet++适配设置和C的原点范数语义见 [ABLATION.md](examples/baselines/flow_dp3/ABLATION.md)。十个任务的动作、状态维度与运行命令见 [introduce.md](introduce.md)。
 
-| 任务 | 基座系 crop 下界 | 基座系 crop 上界 | 世界系 eye → target | 垂直视场角 |
-| --- | --- | --- | --- | --- |
-| PickCube-v1 | `(0.44,-0.23,-0.03)` | `(0.79,0.25,0.52)` | `(0.30,-0.30,0.35)` → `(0,0,0.12)` | 60° |
-| PushCube-v1 | `(0.40,-0.23,-0.03)` | `(1.06,0.25,0.52)` | `(0.30,-0.30,0.35)` → `(0.15,0,0.08)` | 75° |
-| StackCube-v1 | `(0.36,-0.36,-0.03)` | `(0.87,0.36,0.52)` | `(0.30,0.35,0.28)` → `(0,0,0.07)` | 65° |
-| PegInsertionSide-v1 | `(0.34,-0.40,-0.03)` | `(0.90,0.62,0.52)` | `(0.30,-0.35,0.55)` → `(0,0.10,0.12)` | 75° |
-| DrawTriangle-v1 | `(0.28,-0.35,-0.03)` | `(0.80,0.18,0.52)` | `(0.25,-0.40,0.50)` → `(-0.10,-0.10,0.04)` | 60° |
-
-点云接口可通过 `pointcloud_features(obs, agent, env_id="PegInsertionSide-v1")` 选择任务预设；显式传入的 `ObservationConfig` 优先，Draw支持PandaStick的TCP link。实验中可见目标在crop阶段全部保留，但整臂可能被裁去，后续预采样与FPS仍会丢失目标点。例如Pick原始方块中位数476点，FPS后11点；Draw仍有3/700帧目标轮廓被FPS完全丢弃。完整对照及取舍见 [实验报告](testpointcloud/MULTI_TASK_REPORT.md)。第一版正式数据转换与推理已接入这五个任务；状态/动作维度和运行命令见 [introduce.md](introduce.md)。
-
-Stack实验录制显式使用`robot_uids="panda"`；任务原有默认机器人`panda_wristcam`保持不变，其`hand_camera`也保留。默认机器人拼接两台相机时，点数分布不能直接套用单相机实验表。
-
-新录制的 PickCube 默认在同一 HDF5 中保存 `ee`（v5，7维）与 `joint`（v6，8维）两个分支；每个分支真实执行自己的动作、重新采集观测，并在到点后稳定保持40步。只有两个分支均成功的同源示范才保留，训练/验证按相同 episode 划分。录制默认每10条成功示范抽1条完整录像，即第1、11、21……条，两个分支使用相同编号，视频位于 `<数据集名称>-videos-full/{ee,joint}/*.mp4`。未选中轨迹跳过录像画面渲染和编码，训练数据全部逐步保存；`--video-every 1` 恢复每条录像，`--no-save-video` 完全关闭。训练使用 `--control-mode ee` 或 `--control-mode joint` 选择分支，并自动设置动作维度、范围与尾部填充；推理默认跟随 checkpoint，同名参数用于核对。两者 state 均为28维，点云仍使用实际 TCP 计算512×4矢量距离。使用说明与验证见 [双控制录制报告](testpointcloud/DUAL_CONTROL_REPORT.md)。
-
-已单独备份的历史单分支 `testpointcloud/runs/pickcube-stability/pickcube-pose-hold-v5.h5`、`pickcube-joint-hold-v6.h5` 可以继续使用；新检出不包含这些运行产物。旧 v1/v2/v4 数据和 checkpoint 按保存的控制器、相机和采样规则加载，恢复旧训练使用原目录的配置。稳定保持修复与此前实验见 [稳定保持实验报告](testpointcloud/PICKCUBE_STABILITY_REPORT.md)。
-
-训练和验证按整条 episode 划分，状态与动作归一化只使用训练 episode。模型输入包含任务目标位置；物体真值位姿、抓取状态和成功标记仅用于环境或数据检查。PickCube 正式配置、烟雾配置及策略缺省的 SA1/SA2 半径为 0.05 / 0.12 米，依据见 [半径实验](testpointcloud/SA_RADIUS_REPORT.md)，成功率仍需新训练验证。仅修改半径时点云数据可复用；改为7维位姿动作时需重新转换原始轨迹。旧 checkpoint 按保存的半径加载。其他任务配置暂保留 0.10 / 0.20 米。
+`.runtime/`中的环境、数据、权重、日志和视频不上传Git。依赖安装清单继续保留；旧数据和旧权重不再复用。出处和许可证见 [PROVENANCE.md](examples/baselines/flow_dp3/PROVENANCE.md)。
 
 ## 7. 常见问题
 
@@ -340,7 +285,7 @@ Stack实验录制显式使用`robot_uids="panda"`；任务原有默认机器人`
 
 ### 7.3 W&B 依赖
 
-主流程使用 `--wandb-mode disabled`时不导入 W&B SDK。需要在线或离线日志，先按第3.4节安装，再按 introduce.md 第6节运行。安装可选包后重新执行 pip check，并保存新的 freeze。
+主流程使用 `--wandb-mode disabled`时不导入 W&B SDK。需要在线或离线日志，先按第3.4节安装，再按 introduce.md 的日志说明运行。安装可选包后重新执行 pip check，并保存新的 freeze。
 
 发生依赖冲突时，先核对 constraints-rocm.txt 和实际导入路径，再按本机约束调整日志依赖；确认核心框架和仿真依赖未被替换后重新检查环境。
 

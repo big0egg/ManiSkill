@@ -65,6 +65,7 @@ class FileTests(unittest.TestCase):
             p = Path(directory) / 'bad.h5'
             with h5py.File(p, 'w') as f:
                 f.attrs['contract'] = json.dumps({'frame': 'robot_base',
+                    'control_mode': 'pd_ee_delta_pos',
                     'state_dim': 28, 'action_dim': 4,
                     'distance_channels': '[relative_xyz_m, norm_m] / length_scale',
                     'pointcloud': {'num_points': 2, 'length_scale': 1}})
@@ -150,6 +151,7 @@ class ExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'draw.h5'
             contract = {'env_id': 'DrawTriangle-v1', 'frame': 'robot_base',
+                        'control_mode': 'pd_ee_delta_pos',
                         'distance_channels': '[relative_xyz_m, norm_m] / length_scale',
                         'state_dim': 21, 'action_dim': 3,
                         'pointcloud': {'num_points': 2, 'length_scale': 2},

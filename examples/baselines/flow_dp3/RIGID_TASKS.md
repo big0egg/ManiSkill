@@ -1,6 +1,6 @@
 # 第二批刚体任务
 
-每个任务独立采集、训练和评估。输入仍是512点的 `[dx,dy,dz,distance]`，不添加RGB或隐藏物体位姿。
+每个任务独立采集、训练和评估。新数据独立保存基座XYZ；模型通过A/B/C/D选择表示与编码器，不添加RGB或隐藏物体位姿。
 
 | 任务 | 配置文件（configs/） | state | 动作 | 默认上限 | 成功后保持 |
 | --- | --- | --- | --- | --- | --- |
@@ -28,7 +28,7 @@ PullCube 沿用原生条件：方块与目标中心的XY距离小于0.1m；原�
 
 新任务数据采用契约v7，记录相机、crop、目标字段、动作范围和LiftPeg修正后的成功语义。
 窗口覆盖真实末帧；末尾动作填充为零机械臂增量并保持夹爪。
-已有PickCube契约及其余第一批任务v3保持兼容。
+任务控制契约保持原定义；模型使用新的独立XYZ输入版本与v2 checkpoint。
 
 ## 使用命令
 
@@ -49,12 +49,12 @@ python -B examples/baselines/flow_dp3/prepare_demos.py \
 
 python -B examples/baselines/flow_dp3/train.py \
   --config "$FLOW_CONFIG" --env-id "$FLOW_TASK" --data "$FLOW_DATA" \
-  --control-mode "$FLOW_CONTROL" --output "$FLOW_RUN_ROOT/full" \
+  --ablation D --control-mode "$FLOW_CONTROL" --output "$FLOW_RUN_ROOT/runs" \
   --device cuda:0 --batch-size 2 --steps 30000 \
   --wandb-mode disabled
 
 python -B examples/baselines/flow_dp3/evaluate.py \
-  --env-id "$FLOW_TASK" --checkpoint "$FLOW_RUN_ROOT/full/last.pt" \
+  --env-id "$FLOW_TASK" --checkpoint "$FLOW_RUN_ROOT/runs/D/seed_42/last.pt" \
   --device cuda:0 --episodes 20 --start-seed 1000 \
   --output "$FLOW_RUN_ROOT/eval.json" --save-video --save-trace \
   --wandb-mode disabled
@@ -67,17 +67,13 @@ python -B visual/pointcloud.py \
 
 LiftPeg 使用 `FLOW_TASK=LiftPegUpright-v1`、`configs/liftpegupright.yaml`；
 PlaceSphere 使用 `FLOW_TASK=PlaceSphere-v1`、`configs/placesphere.yaml`，并分别选择新的运行目录。
-`ee` 别名自动选择各任务默认控制器；这三个任务当前只录制单分支，不支持 `both` 或 `joint`。
+`ee` 别名自动选择各任务默认控制器；所有任务只录制EE单分支。
 只检查CPU流程时将训练/评估的 `--device` 换成 `cpu`，将W&B设为 `disabled`。
 生成120条原生成功轨迹是给控制转换失败预留余量，不保证转换后必定有100条。
 数量不足会明确报错并保留已生成数据；不要覆盖旧输出。
 默认每10条成功示范录制一条完整场景MP4；`--video-every 1` 录制每条。
 新任务原生注册上限为50步，Flow DP3使用上表更长的上限，便于完成专家轨迹和保持验收。
 
-本次只运行小规模流程验证，没有启动上述100条数据采集或30000步正式训练。
-具体结果见 [version.md](../../../version.md) 和本地 `.runtime/flow_dp3/rigid-batch2-20261010/`。
-
-每个任务保存3条成功转换且持续保持的示范，已验证小模型训练、断点恢复、闭环推理和可视化。
-PullCube最终验证使用 `PullCube-v1/demos-right65.h5`，其余两项使用各自目录下的 `demos.h5`。
-新相机改善PullCube接触阶段的观察，但首条88帧仍有2帧方块FPS点数为0；
-PlaceSphere抽查帧中球只有4–6个FPS点。当前512点预设可用于开始实验，正式成功率仍待评测。
+旧实验产物已清理，本机当前验收范围见 [version.md](../../../version.md)。
+这些任务的正式数据、长训练与四组成功率仍须执行。点云总数512包括桌面和背景，
+不保证小物体点数；正式采集前须检查目标覆盖。

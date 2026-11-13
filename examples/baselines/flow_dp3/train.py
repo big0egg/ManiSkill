@@ -17,9 +17,11 @@ from policy import FlowDP3, PolicyConfig, update_ema
 from obs_adapter import config_from_contract
 from task_registry import TASKS
 from control_modes import CONTROL_CHOICES
+from pointcloud_inputs import ABLATIONS, ablation_group
 
 from runtime_utils import (DEFAULT_CONFIG, canonical, load_config, save_checkpoint,
-                           select_device, sha256, to_device)
+                           select_device, sha256, to_device, CHECKPOINT_VERSION,
+                           pointcloud_contract, validate_checkpoint)
 
 
 def sample_batch(dataset, size, generator):
@@ -28,7 +30,7 @@ def sample_batch(dataset, size, generator):
 
 
 def train(args):
-    config = load_config(args.config)
+    config = load_config(args.config, getattr(args, "ablation", None))
     settings = config["training"]
     steps = args.steps if args.steps is not None else settings["steps"]
     batch_size = args.batch_size if args.batch_size is not None else settings["batch_size"]
@@ -51,13 +53,6 @@ def train(args):
     config_from_contract(training.contract)
     if args.env_id is not None and args.env_id != training.contract["env_id"]:
         raise ValueError("指定训练任务与 HDF5 不匹配")
-    # An explicit controller parameter selects both the branch and its action interface.
-    # Keep architecture/optimizer settings; historical contracts still undergo strict validation.
-    if (getattr(args, "control_mode", None) is not None and
-            training.contract["env_id"] == "PickCube-v1" and training.contract["version"] in (5, 6)):
-        config["policy"]["action_dim"] = training.contract["action_dim"]
-        if settings.get("required_contract_version") in (5, 6):
-            settings["required_contract_version"] = training.contract["version"]
     for field in ("state_dim", "action_dim"):
         recorded = training.contract[field]
         if field in config["policy"] and config["policy"][field] != recorded:
@@ -70,6 +65,8 @@ def train(args):
     policy_config = PolicyConfig(**config["policy"])
     if training.contract["pointcloud"]["length_scale"] != policy_config.length_scale:
         raise ValueError("数据与策略 length_scale 不一致，拒绝重复或错误缩放")
+    group = ablation_group(policy_config)
+    input_contract = pointcloud_contract(policy_config, training.contract)
     fingerprint = sha256(args.data)
     model = FlowDP3(policy_config).to(device)
     states, actions = training.normalizer_data()
@@ -88,11 +85,13 @@ def train(args):
         progress = min(1, (index - warmup) / max(1, settings["steps"] - warmup))
         return 0.5 * (1 + math.cos(math.pi * progress))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_multiplier)
-    output = args.output.resolve()
+    output_root = args.output.resolve()
+    output = output_root / group / f"seed_{settings['seed']}"
     checkpoint = None
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
-        if checkpoint.get("format_version") != 1 or checkpoint["data_sha256"] != fingerprint or canonical(
+        validate_checkpoint(checkpoint)
+        if checkpoint["data_sha256"] != fingerprint or canonical(
             checkpoint["config"]
         ) != canonical(config) or canonical(checkpoint["contract"]) != canonical(training.contract):
             raise ValueError("resume 的格式、配置、数据指纹或输入契约不匹配")
@@ -112,8 +111,10 @@ def train(args):
             raise ValueError("不能精确地将显卡训练恢复到 CPU")
         step = checkpoint["step"]
         best_validation = checkpoint["best_validation"]
-        if output != Path(args.resume).resolve().parent:
+        resume_dir = Path(args.resume).resolve().parent
+        if output_root not in (resume_dir, resume_dir.parent.parent):
             raise ValueError("resume 必须写回原训练输出目录，防止混淆运行记录")
+        output = resume_dir
     elif output.exists() and any(output.iterdir()):
         raise FileExistsError(f"输出目录非空：{output}；请选择新目录或显式 --resume")
     if step >= steps:
@@ -121,18 +122,22 @@ def train(args):
     output.mkdir(parents=True, exist_ok=True)
     import yaml
     (output / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
-    run = {"algorithm": "flow_dp3", "encoder": "ee_relation_pointnetpp", "device": str(device),
+    run = {"algorithm": "flow_dp3", "encoder": policy_config.pointcloud_encoder_type,
+           "representation": policy_config.pointcloud_representation, "ablation": group,
+           "seed": settings["seed"], "pointcloud_input": input_contract, "device": str(device),
            "torch": str(torch.__version__), "data": str(args.data.resolve()), "data_sha256": fingerprint,
            "contract": training.contract, "data_group": training.group_name,
            "train_episodes": training.episodes, "val_episodes": validation.episodes,
            "train_windows": len(training), "val_windows": len(validation),
            "parameter_count": sum(p.numel() for p in model.parameters()), "batch_size": batch_size}
+    run["encoder_parameter_count"] = sum(p.numel() for p in model.distance_encoder.parameters())
     (output / "run.json").write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(run, ensure_ascii=False), flush=True)
     started = time.monotonic()
     logger = None
     completed = False
     try:
+        args.wandb_name = f"{getattr(args, 'wandb_name', None) or output_root.name}-{group}-seed_{settings['seed']}"
         logger = ExperimentLogger(args, output, {**config, "runtime": run, "target_steps": steps},
                                   "train", resume=bool(args.resume), previous=(checkpoint or {}).get("wandb"))
         run["wandb"] = logger.metadata
@@ -173,7 +178,8 @@ def train(args):
                 if step == 1 or step % 10 == 0 or step == steps:
                     print(json.dumps(record), flush=True)
                 if is_best or step % settings["checkpoint_every"] == 0 or step == steps:
-                    payload = {"format_version": 1, "config": config, "contract": training.contract,
+                    payload = {"format_version": CHECKPOINT_VERSION, "config": config, "contract": training.contract,
+                               "pointcloud_input": input_contract, "ablation": group,
                                "data_group": training.group_name,
                                "data_sha256": fingerprint, "model": model.state_dict(), "ema": ema.state_dict(),
                                "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
@@ -199,11 +205,12 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--ablation", choices=list(ABLATIONS), help="选择四组固定点云配置；与显式配置冲突时报错")
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--control-mode", choices=CONTROL_CHOICES,
-                        help="选择数据分支 ee/joint；双分支默认ee，PickCube自动设置7/8维动作接口")
+                        help="仅校验EE控制器，默认跟随任务数据")
     parser.add_argument("--env-id", choices=list(TASKS), help="可选任务校验，实际维度和任务从数据契约读取")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True, help="输出根目录；新训练写入 <根目录>/<组别>/seed_<seed>")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cuda:0")
     parser.add_argument("--steps", type=int, help="目标总更新次数，包含已恢复步数")
     parser.add_argument("--batch-size", type=int)

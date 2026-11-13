@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/baselines/flow_dp3'))
 from control_modes import select_dataset_group
-DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/local-12gb-check/pickcube-smoke.h5'
+DEFAULT_DATASET = ROOT / '.runtime/flow_dp3/ablation-validation/demos.h5'
 
 
 @dataclass
@@ -24,6 +24,7 @@ class Episode:
     actions: np.ndarray
     metadata: dict
     contract: dict
+    xyz: np.ndarray | None = None
 
     @property
     def scale(self):
@@ -42,6 +43,9 @@ class Episode:
         return self.states[:, lo:hi]
 
     def positions(self, frame, coordinate_frame='base'):
+        if self.xyz is not None:
+            base = self.xyz[frame].astype(np.float64)
+            return base if coordinate_frame == 'base' else base - self.tcp[frame]
         relative = self.features[frame, :, :3].astype(np.float64) * self.scale
         return relative + self.tcp[frame] if coordinate_frame == 'base' else relative
 
@@ -99,7 +103,8 @@ def load_episode(path, name='0', control_mode=None):
             raise ValueError(f'不存在 episode：{name}')
         g = root[name]
         episode = Episode(name, g['pointcloud_distance'][:], g['state'][:], g['action'][:],
-                          json.loads(g.attrs['metadata']), contract)
+                          json.loads(g.attrs['metadata']), contract,
+                          g['pointcloud_xyz'][:] if 'pointcloud_xyz' in g else None)
     c = episode.contract
     if c['frame'] != 'robot_base' or c['distance_channels'] != '[relative_xyz_m, norm_m] / length_scale':
         raise ValueError('不支持的数据坐标/距离契约')
@@ -112,6 +117,12 @@ def load_episode(path, name='0', control_mode=None):
         raise ValueError(f'{name}: 包含 NaN/Inf')
     if np.max(np.abs(np.linalg.norm(episode.features[..., :3], axis=-1) - episode.features[..., 3])) > 1e-5:
         raise ValueError(f'{name}: 距离通道与矢量不一致')
+    if episode.xyz is not None:
+        if episode.xyz.shape != (t + 1, c['pointcloud']['num_points'], 3) or not np.isfinite(episode.xyz).all():
+            raise ValueError(f'{name}: 独立 XYZ 形状或数值异常')
+        relative = (episode.xyz - episode.tcp[:, None]) / episode.scale
+        if np.max(np.abs(relative - episode.features[..., :3])) > 1e-5:
+            raise ValueError(f'{name}: XYZ、TCP和距离字段的点索引或时刻不一致')
     bounds = c.get('action_space', {'low': [-1.] * c['action_dim'], 'high': [1.] * c['action_dim']})
     low, high = np.asarray(bounds['low']), np.asarray(bounds['high'])
     if (low.shape != (c['action_dim'],) or high.shape != low.shape or

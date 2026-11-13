@@ -51,11 +51,11 @@ class ObservationConfig:
                 "obs_mode": "pointcloud",
                 "sensor_configs": deepcopy(sensor_configs) if sensor_configs is not None else task_sensors(env_id),
                 "reconfiguration_freq": 1}
-        if version in (5, 6):
+        if version == 5:
             result["action_space"] = pickcube_action_space(version)
             result["sequence_sampling"] = {
                 "current_state": "all_including_terminal",
-                "tail_action": "zero_arm_keep_gripper" if version == 5 else "repeat_absolute_target"}
+                "tail_action": "zero_arm_keep_gripper"}
         if version in (7, 8):
             result["action_space"] = {"low": [-1.0] * task.action_dim,
                                       "high": [1.0] * task.action_dim, "arm_units": "normalized"}
@@ -74,7 +74,7 @@ def config_from_contract(contract):
     version = contract.get("version")
     if version == 1:
         expected = config.contract(sensor_configs={"shader_pack": "default"}, contract_version=1)
-    elif version in (2, 3, 4, 5, 6, 7, 8):
+    elif version in (2, 3, 4, 5, 7, 8):
         env_id = contract.get("env_id", "PickCube-v1")
         task = get_task(env_id, contract_version=version)
         sensors = contract.get("sensor_configs", {})
@@ -121,7 +121,7 @@ def clip_action(action, contract):
     return torch.maximum(torch.minimum(action, action.new_tensor(high)), action.new_tensor(low))
 
 
-def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1"):
+def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1", return_xyz=False):
     """共享点云采样；未传 config 时按任务选 crop，默认输出512点。
 
     显式 config（例如数据或 checkpoint 中的观测配置）优先，保持历史契约。
@@ -155,17 +155,21 @@ def pointcloud_features(obs, agent, config=None, *, env_id="PickCube-v1"):
     features = torch.cat((relative, distances), dim=-1) / config.length_scale
     if not torch.isfinite(features).all():
         raise RuntimeError("距离点云包含 NaN/Inf")
-    return features, {"valid_points": int(valid.sum()), "cropped_points": int(keep.sum()),
+    diagnostics = {"valid_points": int(valid.sum()), "cropped_points": int(keep.sum()),
                       "sampled_points": int(sampled.shape[1]),
                       "tcp_base_m": tcp_base.tolist(), "feature_shape": list(features.shape),
                       "distance_range_m": [float(distances.min()), float(distances.max())],
                       "distance_norm_error": float((features[..., 3] - features[..., :3].norm(dim=-1)).abs().max())}
+    # Return the sampled source itself, never reconstructed from relative XYZ.
+    if return_xyz:
+        return features, diagnostics, sampled
+    return features, diagnostics
 
 
 def adapt_observation(obs, agent, config, *, contract=None):
     env_id = contract["env_id"] if contract is not None else "PickCube-v1"
     task = get_task(env_id, contract_version=contract["version"] if contract is not None else None)
-    distance, diagnostics = pointcloud_features(obs, agent, config)
+    distance, diagnostics, xyz = pointcloud_features(obs, agent, config, env_id=env_id, return_xyz=True)
     qpos = torch.as_tensor(obs["agent"]["qpos"]).detach().cpu().reshape(1, -1)
     qvel = torch.as_tensor(obs["agent"]["qvel"]).detach().cpu().reshape(1, -1)
     tcp_pose = agent.tcp_pose if hasattr(agent, "tcp_pose") else agent.tcp.pose
@@ -180,7 +184,14 @@ def adapt_observation(obs, agent, config, *, contract=None):
     state = torch.cat(parts, dim=-1).float()
     if qpos.shape != (1, task.joints) or qvel.shape != qpos.shape or state.shape != (1, task.state_dim) or not torch.isfinite(state).all():
         raise ValueError(f"{env_id} 本体状态异常：{tuple(state.shape)}")
-    return {"pointcloud_distance": distance, "state": state}, diagnostics
+    start = task.state_fields["tcp_base_pose_wxyz"][0]
+    ee_position = state[:, start:start + 3]
+    relative = xyz - ee_position.unsqueeze(1)
+    distance = torch.cat((relative, relative.norm(dim=-1, keepdim=True)), dim=-1) / config.length_scale
+    diagnostics["tcp_base_m"] = ee_position[0].tolist()
+    diagnostics["distance_norm_error"] = float((distance[..., 3] - distance[..., :3].norm(dim=-1)).abs().max())
+    return {"pointcloud_xyz": xyz, "ee_position": ee_position,
+            "pointcloud_distance": distance, "state": state}, diagnostics
 
 
 def make_env(control_mode=None, visual=True, max_episode_steps=None, render_mode=None,

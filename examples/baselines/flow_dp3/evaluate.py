@@ -16,6 +16,7 @@ from task_metrics import task_metrics
 from task_registry import TASKS, get_task
 from control_modes import CONTROL_CHOICES, check_control_mode
 from runtime_utils import load_policy, select_device, sha256
+from pointcloud_inputs import ABLATIONS
 
 
 def evaluate(args):
@@ -42,6 +43,8 @@ def evaluate(args):
     device = select_device(args.device)
     torch.manual_seed(args.policy_seed)
     policy, checkpoint = load_policy(args.checkpoint, device, use_ema=not args.raw_weights)
+    if getattr(args, "ablation", None) is not None and args.ablation != checkpoint["ablation"]:
+        raise ValueError("指定消融组别与 checkpoint 不匹配")
     if getattr(args, "n_action_steps", None) is not None:
         policy.config = replace(policy.config, n_action_steps=args.n_action_steps)
     contract = checkpoint["contract"]
@@ -171,7 +174,9 @@ def evaluate(args):
                 logger.finish({"eval/success_once_rate": sum(r["success_once"] for r in results) / max(1, len(results)),
                                "eval/success_end_rate": sum(r["success_end"] for r in results) / max(1, len(results)),
                                "eval/episodes": len(results)}, exit_code=0 if completed else 1)
-    report = {"algorithm": "flow_dp3", "encoder": "ee_relation_pointnetpp",
+    report = {"algorithm": "flow_dp3", "encoder": policy.config.pointcloud_encoder_type,
+              "representation": policy.config.pointcloud_representation, "ablation": checkpoint["ablation"],
+              "pointcloud_input": checkpoint["pointcloud_input"],
               "checkpoint": str(args.checkpoint.resolve()), "checkpoint_sha256": sha256(args.checkpoint),
               "checkpoint_step": checkpoint["step"], "weights": "raw" if args.raw_weights else "ema",
               "device": str(device), "contract": contract, "policy_seed": args.policy_seed,
@@ -195,8 +200,9 @@ def evaluate(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--ablation", choices=list(ABLATIONS), help="仅校验checkpoint组别，不能覆盖模型输入")
     parser.add_argument("--control-mode", choices=CONTROL_CHOICES,
-                        help="默认跟随checkpoint；指定ee/joint时校验一致性，不能切换模型动作维度")
+                        help="默认跟随checkpoint；只允许EE控制器校验")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cuda:0")
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--start-seed", type=int, default=1000, help="与训练示范 seed 分离")

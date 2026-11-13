@@ -1,0 +1,5 @@
+# Overlay applied by --ablation D to the task configuration.
+policy:
+  pointcloud_representation: ee_vector_distance
+  pointcloud_encoder_type: ee_relation_pointnetpp
+  pointcloud_input_version: 2

@@ -1,4 +1,4 @@
-"""Meaningful regressions for terminal conditioning, delta padding and radian actions."""
+"""Meaningful regressions for terminal conditioning and EE delta padding."""
 from pathlib import Path
 import json
 import sys
@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "examples/baselines/flow_dp3"))
 sys.path.insert(0, str(ROOT / "visual"))
 from dataset_io import load_episode
 from dataset import DemoDataset
+from pointcloud_inputs import STORAGE_CONTRACT
 from obs_adapter import ObservationConfig, clip_action, config_from_contract
 from prepare_demos import pose_hold_action
 from train import train
@@ -30,16 +31,16 @@ class StabilityTests(unittest.TestCase):
         path = Path(directory) / f"v{version}.h5"
         with h5py.File(path, "w") as f:
             f.attrs["contract"] = json.dumps(contract)
+            f.attrs["pointcloud_storage"] = json.dumps(STORAGE_CONTRACT)
             f.attrs["manifest"] = "{}"
             for i in range(3):
                 g = f.create_group(f"episode_{i:05d}")
                 g.attrs["metadata"] = '{"success_end":true}'
                 g["state"] = np.repeat(np.arange(length + 1, dtype=np.float32)[:, None], 28, 1)
                 g["pointcloud_distance"] = np.zeros((length + 1, 128, 4), np.float32)
+                g["pointcloud_xyz"] = np.zeros((length + 1, 128, 3), np.float32)
                 actions = np.full((length, contract["action_dim"]), .03, np.float32)
                 actions[:, -1] = -1
-                if version == 6:
-                    actions[:, :7] = [0, .2, 0, -1.5, 0, 2.2, .8]
                 g["action"] = actions
         return path
 
@@ -57,17 +58,6 @@ class StabilityTests(unittest.TestCase):
             finally:
                 data.close()
 
-    def test_absolute_joint_padding_preserves_the_fixed_target(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
-            data = DemoDataset(self.data(directory, 6), horizon=4, n_obs_steps=2, n_action_steps=2)
-            try:
-                index = next(i for i, entry in enumerate(data.index) if entry[1] == 5)
-                sample = data[index]
-                torch.testing.assert_close(sample["action"], sample["action"][0:1].expand(4, 8))
-                self.assertGreater(sample["action"][1, 5], 1)  # radians are preserved.
-            finally:
-                data.close()
-
     def test_legacy_windows_and_padding_remain_unchanged(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
             data = DemoDataset(self.data(directory, 4), horizon=4, n_obs_steps=2, n_action_steps=2)
@@ -79,25 +69,6 @@ class StabilityTests(unittest.TestCase):
                 self.assertAlmostEqual(last["action"][-1, 0].item(), .03)
             finally:
                 data.close()
-
-    def test_joint_bounds_do_not_clip_valid_angles_to_one_radian(self):
-        contract = ObservationConfig().contract(contract_version=6)
-        config_from_contract(contract)
-        action = torch.tensor([0, .2, 0, -1.5, 0, 2.2, .8, -1.])
-        torch.testing.assert_close(clip_action(action, contract), action)
-        action[0] = 10
-        self.assertAlmostEqual(clip_action(action, contract)[0].item(), contract["action_space"]["high"][0])
-        contract["action_space"]["high"][0] = 1
-        with self.assertRaises(ValueError):
-            config_from_contract(contract)
-        with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:
-            path = self.data(directory, 6)
-            episode = load_episode(path, '0')
-            self.assertGreater(episode.actions[:, 5].min(), 1)
-            with h5py.File(path, 'r+') as stream:
-                stream['episode_00000/action'][0, 0] = 10
-            with self.assertRaisesRegex(ValueError, "控制器范围"):
-                load_episode(path, '0')
 
     def test_new_training_rejects_old_seven_dimensional_data_without_holding_contract(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "testpointcloud") as directory:

@@ -10,9 +10,12 @@ import torch
 import yaml
 
 from policy import FlowDP3, PolicyConfig
+from pointcloud_inputs import INPUT_VERSION, STORAGE_CONTRACT, ABLATIONS, ablation_group
 
 
 DEFAULT_CONFIG = Path(__file__).parent / "configs" / "pickcube.yaml"
+CHECKPOINT_VERSION = 2
+ABLATION_CONFIG_DIR = Path(__file__).parent / "config" / "pointcloud_ablation"
 
 
 def sha256(path):
@@ -23,10 +26,18 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def load_config(path):
+def load_config(path, ablation=None):
     config = yaml.safe_load(Path(path).read_text())
     if not isinstance(config, dict) or set(config) != {"policy", "training"}:
         raise ValueError("配置必须包含 policy、training 两个字段")
+    if ablation is not None:
+        if ablation not in ABLATIONS:
+            raise ValueError(f"Unknown ablation group: {ablation}")
+        preset = yaml.safe_load((ABLATION_CONFIG_DIR / f"{ablation.lower()}.yaml").read_text())["policy"]
+        for key, value in preset.items():
+            if key in config["policy"] and config["policy"][key] != value:
+                raise ValueError(f"--ablation {ablation} 与配置 {key} 冲突")
+        config["policy"].update(preset)
     policy_config = PolicyConfig(**config["policy"])
     fields = {key for key in ("state_dim", "action_dim") if key in config["policy"]}
     config["policy"] = asdict(policy_config)
@@ -39,6 +50,48 @@ def load_config(path):
     version = config["training"].get("required_contract_version")
     if version is not None and (type(version) is not int or version < 1):
         raise ValueError("required_contract_version 必须为正整数")
+    return config
+
+
+def pointcloud_contract(config, observation_contract):
+    """Serialize geometry and attribute semantics; compare before loading weights."""
+    from obs_adapter import config_from_contract
+    config_from_contract(observation_contract)
+    if config.length_scale != observation_contract["pointcloud"]["length_scale"]:
+        raise ValueError("数据与策略 length_scale 不一致")
+    if config.pointcloud_num_centers[0] > observation_contract["pointcloud"]["num_points"]:
+        raise ValueError("SA1 centers exceed the number of real observed points")
+    start = observation_contract["state_fields"]["tcp_base_pose_wxyz"][0]
+    return {"version": INPUT_VERSION, "storage": STORAGE_CONTRACT,
+            "representation": config.pointcloud_representation,
+            "encoder_type": config.pointcloud_encoder_type, "output_dim": 64,
+            "frame": observation_contract["frame"], "axes": "robot_base_fixed",
+            "tcp_reference": "current_observed_tcp", "tcp_position_slice": [start, start + 3],
+            "length_scale": config.length_scale,
+            "sampling": observation_contract["pointcloud"],
+            "geometry_backend": "torch", "geometry_version": "canonical_fps_ball_query_v1",
+            "num_centers": list(config.pointcloud_num_centers),
+            "num_neighbors": list(config.pointcloud_num_neighbors),
+            "radius_m": [config.radius1_m, config.radius2_m],
+            "local_relation_mode": config.local_relation_mode, "readout_mode": config.readout_mode}
+
+
+def validate_checkpoint(checkpoint):
+    if checkpoint.get("format_version") != CHECKPOINT_VERSION:
+        raise ValueError("旧 checkpoint 已停用；需要重新训练四组实验格式 v2")
+    fields = ("pointcloud_representation", "pointcloud_encoder_type", "pointcloud_input_version",
+              "pointcloud_num_centers", "pointcloud_num_neighbors", "local_relation_mode", "readout_mode")
+    policy_settings = checkpoint.get("config", {}).get("policy")
+    if not isinstance(policy_settings, dict) or any(field not in policy_settings for field in fields):
+        raise ValueError("checkpoint 缺少显式点云配置，拒绝猜测输入语义")
+    config = PolicyConfig(**policy_settings)
+    expected = pointcloud_contract(config, checkpoint["contract"])
+    if canonical(checkpoint.get("pointcloud_input")) != canonical(expected):
+        raise ValueError("checkpoint 点云表示、编码器或几何设置与输入契约不匹配")
+    if any(getattr(config, key) != checkpoint["contract"][key] for key in ("state_dim", "action_dim")):
+        raise ValueError("checkpoint 模型维度与任务契约不匹配")
+    if checkpoint.get("ablation") != ablation_group(config):
+        raise ValueError("checkpoint 组别与点云配置不匹配")
     return config
 
 
@@ -90,13 +143,7 @@ def save_checkpoint(path, payload):
 
 def load_policy(path, device, use_ema=True):
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if checkpoint.get("format_version") != 1:
-        raise ValueError("不支持的 FlowDP3 checkpoint 格式")
-    from obs_adapter import config_from_contract
-    config_from_contract(checkpoint["contract"])
-    policy_config = PolicyConfig(**checkpoint["config"]["policy"])
-    if any(getattr(policy_config, key) != checkpoint["contract"][key] for key in ("state_dim", "action_dim")):
-        raise ValueError("checkpoint 模型维度与任务契约不匹配")
+    policy_config = validate_checkpoint(checkpoint)
     policy = FlowDP3(policy_config)
     policy.load_state_dict(checkpoint["ema" if use_ema else "model"], strict=True)
     policy.to(device).eval()

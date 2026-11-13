@@ -14,9 +14,11 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DemoDataset
+from pointcloud_inputs import STORAGE_CONTRACT
 from obs_adapter import ObservationConfig, adapt_observation, config_from_contract, make_env
 from policy import FlowDP3, PolicyConfig
-from runtime_utils import save_checkpoint, load_policy
+from runtime_utils import save_checkpoint, load_policy, pointcloud_contract
+from pointcloud_inputs import ablation_group
 from scene_bounds import get_scene_crop_bounds
 from task_registry import TASKS
 from mani_skill.utils.structs import Pose
@@ -91,6 +93,7 @@ class MultiTaskTests(unittest.TestCase):
                 path = Path(directory)/"data.h5"
                 with h5py.File(path, "w") as f:
                     f.attrs["contract"] = json.dumps(contract)
+                    f.attrs["pointcloud_storage"] = json.dumps(STORAGE_CONTRACT)
                     f.attrs["manifest"] = "{}"
                     for i in range(3):
                         g = f.create_group(f"episode_{i:05d}")
@@ -98,6 +101,7 @@ class MultiTaskTests(unittest.TestCase):
                         g["state"] = np.zeros((21, task.state_dim), np.float32)
                         g["action"] = np.zeros((20, task.action_dim), np.float32)
                         g["pointcloud_distance"] = np.zeros((21, 512, 4), np.float32)
+                        g["pointcloud_xyz"] = np.zeros((21, 512, 3), np.float32)
                 data = DemoDataset(path)
                 sample = data[0]
                 batch = {"obs": {key: value[None] for key, value in sample["obs"].items()},
@@ -114,7 +118,9 @@ class MultiTaskTests(unittest.TestCase):
                 expected = model.predict_action(batch["obs"])["action"]
                 checkpoint = Path(directory)/"model.pt"
                 from dataclasses import asdict
-                save_checkpoint(checkpoint, {"format_version": 1, "contract": contract,
+                save_checkpoint(checkpoint, {"format_version": 2, "contract": contract,
+                                            "pointcloud_input": pointcloud_contract(config, contract),
+                                            "ablation": ablation_group(config),
                                             "config": {"policy": asdict(config)},
                                             "model": model.state_dict(), "ema": model.state_dict()})
                 loaded, _ = load_policy(checkpoint, torch.device("cpu"))

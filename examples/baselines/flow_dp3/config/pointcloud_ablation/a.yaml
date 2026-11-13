@@ -1,0 +1,5 @@
+# Overlay applied by --ablation A to the task configuration.
+policy:
+  pointcloud_representation: xyz
+  pointcloud_encoder_type: pointnetpp
+  pointcloud_input_version: 2
